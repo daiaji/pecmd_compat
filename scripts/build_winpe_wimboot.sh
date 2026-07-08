@@ -18,7 +18,7 @@ echo "[INFO] Work dir: $WORK_DIR"
 echo "[INFO] Base zip: $BASE_ZIP"
 echo "[INFO] Output dir: $OUTPUT_DIR"
 
-rm -rf "$BASE_DIR" "$MOUNT_DIR" "$OUTPUT_DIR"
+rm -rf "$BASE_DIR" "$MOUNT_DIR"
 mkdir -p "$BASE_DIR" "$MOUNT_DIR" "$OUTPUT_DIR"
 
 echo "[1/5] Extracting base WinPE bundle..."
