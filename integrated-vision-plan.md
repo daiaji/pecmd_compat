@@ -242,7 +242,7 @@ Lua 已经是完整脚本语言，应该直接承担这些职责：
 - 复用 Lua/LuaJIT 生态，不重建旧表达式语言和流程控制语言。
 - `win-utils` 提供底层系统能力。
 - `win-kit` 提供 Lua 封装、业务策略和 PE recipes。
-- GUI 后置，可先用 CLI、message box、文件/目录对话框和日志界面替代。
+- GUI 后置，但语义目标改为对齐 AutoHotkey v2 的 GUI 能力模型：窗口、控件、事件、列表、输入、进度、文件选择等；不复刻 PECMD WinCMD 控件 DSL。
 - 网络功能可以先补基础网卡/DNS/DHCP/NTP；不复刻旧 `SOCK` 对象系统。
 - ImDisk/UDM/U+ 生态属于旧生态兼容，不进入当前路线图。
 
@@ -255,7 +255,7 @@ Lua 已经是完整脚本语言，应该直接承担这些职责：
 - 进程与服务: `win-utils.process`、`win-utils.sys.service`。
 - 系统设置: `win-utils.sys.display/font/hotkey/pagefile/power/shell/env/user`。
 - 网络: `win-utils.net`，后续补 `adapter.set_ipv4`、DNS 设置、NTP。
-- UI/交互: 最小 `win-utils.ui` + 最终 Shell UI。
+- UI/交互: `peshell_minimal` 提供 AHK v2-like Lua GUI API，底层由 ImGui/cimgui/Win32+D3D11 实现。
 
 ## `peshell_minimal` 历史愿景的保留与降级
 
@@ -271,13 +271,13 @@ Lua 已经是完整脚本语言，应该直接承担这些职责：
 - **状态/幂等思路**：PE 初始化应尽量描述目标状态，例如“驱动已安装”“页面文件存在”“外壳被守护”“盘符已整理”，由 recipes 做差异检查，而不是盲目重复执行命令。
 - **异步优先**：最终 Shell/UI 不应被文件复制、驱动安装、WIM/VHD 挂载、磁盘检测、网络等待阻塞。
 - **Host + LuaJIT + Event Loop + Thread Pool**：作为最终 `peshell_minimal` 或后续 Shell 的运行时方向仍然成立。
-- **ImGui/现代 UI 可作为后续体验层**：但不应阻塞底层能力补齐。
+- **AHK v2-like GUI API + ImGui backend**：最终 GUI 能力按 AutoHotkey v2 的对象化 GUI 模型对齐，底层可用 ImGui/cimgui 实现；这覆盖 PECMD 常见 GUI 能力，但不继承 PECMD 控件语法。
 
 这些方向应该落到以下位置：
 
 - 对象化 API 主要落到 `win-utils` 和 `win-kit`。
 - 幂等状态主要落到 `win-kit.tasks/*`。
-- 异步、事件循环、线程池、UI 主要落到最终 Shell/Host。
+- 异步、事件循环、线程池、AHK-like GUI API 和 ImGui backend 主要落到最终 Shell/Host。
 - Lua profile 加载、任务编排、日志展示和用户确认落到 `peshell_minimal` 或后续 Shell。
 
 ### 需要降级或废弃的旧设定
@@ -352,8 +352,13 @@ return {
 - 线程池，执行耗时任务。
 - 异步任务结果投递回主线程。
 - ImGui 或其他轻量 UI。
+- AHK v2-like Lua GUI 层，用 `gui.new()` / `window:add(...)` / `control:on(...)` 这类对象方法表达常见 PE 工具界面。
 - profile 加载和任务调度。
 - 日志、进度、错误展示。
+
+GUI 复杂度基准以 PECMD/WinPE 圈常见的 CGI 系统部署工具为准：镜像路径选择、目标磁盘/分区表、部署选项、格式化/引导修复复选项、开始/取消按钮、进度条、日志和确认/错误弹窗。这个级别不需要 WebView、WinUI 或 .NET；AHK v2-like Lua API + ImGui backend 足够覆盖，并且保留自绘和主题扩展空间。
+
+优先控件顺序：`Text`、`Button`、`Edit`、`Checkbox`、`Radio`、`DropDownList`、`ListView/Table`、`Progress`、`Tab`、`StatusBar`、`LogView`、`PathPicker`、`DiskList`、`ConfirmDialog`。不优先实现完整布局 DSL、富文本、复杂动画或原生控件像素级兼容。
 
 但它不应包含：
 
@@ -782,18 +787,16 @@ return {
 
 ## 近期执行清单
 
-按当前项目现状，建议从这些任务开始：
+按 `missing-alignment.md` 和 `win-utils-status-2026-07-07.md` 的最新状态，当前应从收敛和核验开始：
 
-1. 为 `win-utils.process.exec(opts)` 合并 capture stdout/stderr 返回模型。
-2. 为 `win-utils.fs.read/write` 补 `encoding`、`offset/length`、`atomic`。
-3. 为 `win-utils.disk` 统一破坏性 API 的 `dry_run` / `confirm`。
-4. 为 `win-utils.disk.safety` 补系统盘、pagefile、hiberfil、fixed disk 检查。
-5. 为 `win-utils.disk.info` 规划并实现设备指纹查询的只读最小版本。
-6. 为 `win-utils.net` 补 IPv4/DNS 设置 API。
-7. 拆分或重命名 `win-kit.pecmd_logic.lua`。
-8. 将 `win-kit` recipes 整理为明确任务入口。
-9. 为 `win-utils.ui` 补最小 message box 和文件打开/保存对话框。
-10. 继续维护 `matrix.md`，每完成一个能力就更新对应对象状态。
+1. 在 Windows/MSVC 环境编译 `peshell_minimal`，打包 `cimgui.dll`，运行 `imgui-native-smoke` 做真实渲染核验。
+2. 对 `reg.with_hive` / `HIVE -super`、`input/window`、`disk` 破坏性路径、`netsh` / `w32tm` 和 Shell32/COM 依赖做 Windows/WinPE 实机核验。
+3. 补 Win32+D3D11 resize、device lost、窗口关闭细节，以及 AHK v2-like `ui.gui` 骨架和 CGI 类工具优先控件。
+4. 继续清理 `win-utils/input.lua`、`win-utils/window.lua` 剩余内联 `ffi.cdef`，缺失声明先补到 `lua-ffi-bindings`。
+5. BCD/boot repair 先落到 `win-kit` recipe，短期调用 `bcdboot.exe` / `bootrec.exe` / `bcdedit.exe`，不在首期重写 BCD 解析器。
+6. 建立测试分层：纯 Lua/离线、Windows CI、管理员权限、WinPE 实机、真实磁盘/USB destructive。
+7. 拆分或重命名 `win-kit.pecmd_logic.lua`，并将 `win-kit` recipes 整理为明确任务入口。
+8. 继续维护 `matrix.md`，每完成或核验一个能力就更新对应对象状态。
 
 ## 判定标准
 

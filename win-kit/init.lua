@@ -2,6 +2,9 @@ local M = {}
 
 -- 定义 win-kit 的模块映射 (平铺结构)
 local modules = {
+    -- 任务入口
+    tasks               = 'win-kit.tasks',
+
     -- 驱动相关
     driver_scanner      = 'win-kit.driver_scanner',
     driver_installer    = 'win-kit.driver_installer',
@@ -22,6 +25,7 @@ local modules = {
     cleaner             = 'win-kit.cleaner',
     
     -- 逻辑/其他
+    repair              = 'win-kit.repair',
     pecmd_logic         = 'win-kit.pecmd_logic',
     poweroff            = 'win-kit.poweroff'
 }

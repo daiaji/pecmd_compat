@@ -19,7 +19,7 @@
 - `integrated-vision-plan.md`: 融合最新 `win-utils` / `win-kit` 愿景、磁盘 V3.0 架构和当前项目现状的完整方案。
 - `win-utils-status-2026-07-07.md`: 当前 `win-utils` 完成度、薄弱模块、FFI 边界和下一步优先级快照。
 - `legacy-vision-review-2026-07-07.md`: 对旧版 `win-utils` / `win-kit` / `peshell_minimal` 愿景材料的遗漏复核和取舍记录。
-- 后续生成 `matrix.md`: 人类审阅矩阵。
+- `matrix.md`: 覆盖 138 个官方对象的人类审阅矩阵。
 
 ## 抽取字段
 

@@ -8,13 +8,13 @@
 
 ## 总体判断
 
-`win-utils` 已经不是空架子，已经覆盖 WinPE 自动化所需的大部分底层能力；但它仍是“功能丰富的半成品底座”，需要继续做工程收敛。
+`win-utils` 已经不是空架子，已经覆盖 WinPE 自动化所需的大部分底层能力；`peshell_minimal` 也已经建立 ImGui/Win32+D3D11 的首个 UI 集成路径。但整体仍是“功能丰富的半成品底座”，需要继续做工程收敛和 Windows/WinPE 实机核验。
 
 粗略判断：
 
 - 核心骨架完成度：约 60-70%。
 - PECMD/WinPE 自动化首期可用度：约 50-60%。
-- 当前主要问题不是缺少全部模块，而是大量对象仍是 `partial`，需要补安全闸门、参数边界、返回值模型、实机核验和少数缺失 API。
+- 当前主要问题不是缺少全部模块，而是大量对象仍是 `partial`，需要做实机核验、少数缺失 API、UI 后端打包和 Windows 运行验证。
 
 ## 矩阵口径统计
 
@@ -48,13 +48,12 @@
 - `exec(opts)` table API。
 - 参数数组、环境变量、工作目录、窗口显示、优先级、`WaitForInputIdle`、timeout、job、kill tree。
 - `popen.run` capture 和 timeout。
+- `exec(opts)` capture / `capture_stdout` / `capture_stderr` 返回模型。
 - `token`、`job`、`memory`、`module`、`handles` 子模块。
 
 仍需补齐：
 
-- `capture` 仍由 `process.popen.run` 提供，尚未合并进统一 `process.exec(opts)` 返回模型。
 - 线程/句柄目标终止是否需要支持仍需决策。
-- `process/init.lua`、`process/popen.lua` 仍有内联 `ffi.cdef`，应迁入 `lua-ffi-bindings`。
 
 ### `reg`
 
@@ -67,12 +66,11 @@
 - Hive load/unload/save/with_hive。
 - 注册表 ACL reset。
 - UTF-16 `.reg` export。
+- `.reg` import_file。
 
 仍需补齐：
 
-- `.reg` import 或与 `win-kit.registry.import` 的职责边界。
 - `HIVE -super` 等价行为需要实机核验。
-- `reg/init.lua` 仍有内联 `ffi.cdef`，应迁入 `lua-ffi-bindings`。
 
 ### `disk`
 
@@ -82,13 +80,16 @@
 - WIM/VHD/ISO/盘符/卷/分区/格式化/FBWF 基础能力。
 - `prepare_drive`、`clean_all`、`check_health`、`sync` 等高层入口。
 
+已补齐/对齐：
+
+- 破坏性 API 已统一接入 `dry_run` / `confirm` 安全闸门，覆盖 `PART/FORM/DISK clean/apply` 相关公开入口。
+- `PAGE` 已补 PagingFiles 查询、配置、禁用和移除配置；`NtCreatePagingFile` 创建保留。
+- BitLocker、系统盘、固定盘、只读/离线、pagefile/hiberfil、写保护策略等风险已进入 `disk.safety` 前置检查。
+
 仍需补齐：
 
-- 所有破坏性 API 统一 `dry_run`、`confirm`、日志和错误返回。
-- `PART/FORM/DISK clean/apply` 需要统一安全闸门。
-- `PAGE` 查询、删除、禁用页面文件能力仍缺。
+- 破坏性 API 的 Windows/WinPE 实机验证和日志细节仍需跑通。
 - `UDM/U+`、`ImDisk/RAMD` 旧生态兼容默认不做；不要把这些重新纳入当前路线图。
-- BitLocker 状态检测应进入 `disk.safety` 的只读前置检查，目标是识别风险并阻止危险操作。
 - BCD/boot repair 应先由 `win-kit` recipe 调用系统工具，不在 `win-utils` 首期重写 BCD 解析器。
 
 ### `fs` / `text` / `crypto`
@@ -101,11 +102,14 @@
 - CRC32、MD5、SHA1、SHA256、SHA384、SHA512。
 - 字符串和文件级编码转换。
 
+- `fs.read/write` 已补 encoding、offset/length、atomic。
+- `win-utils.ini` 已补 INI parse/encode/load/save。
+- `win-utils.text` 已补 BOM 检测和 UTF-8/UTF-16LE/UTF-16BE 自动识别。
+
 仍需补齐：
 
-- `fs.read/write` 的 encoding、offset/length、atomic。
 - PECMD 变异 Base64 账号密码算法是否保留，需要真实样本或用途再决策。
-- `crypto.lua`、`fs/acl.lua` 仍有内联 FFI，应迁入 `lua-ffi-bindings`。
+- PECMD 源格式细节仍需样本核验。
 
 ### `sys`
 
@@ -114,12 +118,16 @@
 - `service`、`driver`、`power`、`desktop`、`display`、`shortcut`、`hotkey`、`info`、`shell`、`io`、`path`、`env`、`pagefile`、`dism`、`inf`、`dev_info`、`font`、`user`、`dev_ctrl`。
 - 已覆盖很多 PECMD 的 `SERV`、`LINK`、`FONT`、`HOTK`、`WALL`、`SHEL`、`DEVI` 基础场景。
 
+已补齐/对齐：
+
+- `sys.time`：Lua 时间查询、Win32 本地/UTC 时间读写、时区、NTP 同步。
+- `sys.autorun`：HKCU/HKLM Run/RunOnce list/set/delete。
+- `sys.recycle`：移动到回收站、清空回收站、查询回收站信息。
+- `sys/user.lua`、`sys/dev_ctrl.lua` 内联 FFI 已迁入 `lua-ffi-bindings`。
+
 仍需补齐：
 
-- `sys.time`：系统时间、时区、NTP 同步。
-- `sys.autorun` 或 `sys.run_keys`：封装启动项 `RUNS`。
-- `sys.recycle`：若确认 PE 场景需要回收站能力。
-- `sys/user.lua`、`sys/dev_ctrl.lua` 仍有内联 FFI，应迁入 `lua-ffi-bindings`。
+- 上述系统能力需要 Windows/WinPE 实机核验权限、服务和 Shell32 依赖。
 
 ### `input` / `window`
 
@@ -132,8 +140,11 @@
 仍需补齐：
 
 - Windows/PE 实机核验 `SendInput`、`keybd_event`、`mouse_event` 在目标桌面和焦点下的行为。
-- 完整虚拟键常量表可按现代 API 需要补，不做旧 PECMD 发送语法兼容。
-- `input.lua`、`window.lua` 仍有内联 FFI，应迁入 `lua-ffi-bindings`。
+- `input.lua`、`window.lua` 仍有内联 FFI，应在 UI/交互阶段迁入 `lua-ffi-bindings`。
+
+已补齐：
+
+- `win-utils.vk` 已提供独立虚拟键常量表和 normalize helper。
 
 ## 明显薄弱的模块
 
@@ -146,13 +157,17 @@
 - `icmp`。
 - `stat`。
 
-仍需补齐：
+已补齐/对齐：
 
-- `adapter.set_ipv4(adapter, opts)`。
-- DHCP/静态 IP/网关/掩码。
+- `adapter.list()` 已补连接名、适配器名、索引、MAC、MTU、类型、DNS、网关、IPv4 前缀、DHCP 推断。
+- `adapter.set_ipv4(adapter, opts)` 覆盖 DHCP/静态 IP/网关/掩码。
 - `dns.set_servers(adapter, servers)`。
 - `adapter.enable/disable(adapter)`。
-- `ntp.sync(server, opts)` 或 `sys.time.sync_ntp`。
+- `ntp.sync(server, opts)` 和 `sys.time.sync_ntp`。
+
+仍需补齐：
+
+- Windows/WinPE 实机核验 `netsh` / `w32tm` 可用性和适配器定位。
 
 `SOCK` 完整对象系统默认不做。现代通信能力如果需要，应按用途拆分到：
 
@@ -163,13 +178,21 @@
 
 ### `ui`
 
-当前还没有明确的 `win-utils.ui` 模块。
+当前仍不计划把复杂 UI 放进 `win-utils.ui`。现代交互层已转到 `peshell_minimal`：
+
+- `peshell_minimal` 已有 cimgui loader、`imgui-probe`、backend-neutral `ui.runtime`、headless backend。
+- `peshell_minimal` 已有 Win32+D3D11 Lua backend skeleton 和 `_G.pesh_native.ui` native host contract。
+- `peshell_minimal/src/main.cpp` 已实现 Win32 window、D3D11 swap chain/device/context、frame begin/end、message polling 和 destroy hooks。
+- `imgui-native-smoke` 已串起 native host、runtime、message box 和 file picker draw 层。
+- `message_box` 和 `file_picker` 已有 view model + ImGui draw，并有 Linux 离线 stub 测试。
+- GUI 复杂度基准已收敛到 CGI 类系统部署工具：镜像选择、目标分区列表、部署选项、进度、日志和确认/错误弹窗。AHK v2-like Lua API + ImGui backend 被视为足够覆盖 PECMD GUI 替代目标。
 
 仍需补齐：
 
-- `ui.message_box`。
-- `ui.open_file_dialog`。
-- `ui.save_file_dialog`。
+- Windows/MSVC 编译 `peshell_minimal`，并在 `cimgui.dll` 到位后运行 `imgui-native-smoke` 做真实渲染核验。
+- cimgui DLL 构建/打包路径。
+- Win32+D3D11 swap-chain resize、device lost、窗口关闭细节。
+- AHK v2-like `ui.gui` 骨架和 CGI 类工具优先控件：ListView/Table、Progress、LogView、PathPicker、DiskList、ConfirmDialog。
 - `screenshot.capture(opts)`。
 
 复杂 UI、旧 WinCMD 控件 DSL、ImGui 集成都不应进入 `win-utils`，应放到 `peshell_minimal` 或后续 Shell 阶段。
@@ -184,13 +207,16 @@
 
 - `/home/daiaji/repo/pecmd_compat/win-utils/input.lua`
 - `/home/daiaji/repo/pecmd_compat/win-utils/window.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/crypto.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/sys/user.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/sys/dev_ctrl.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/reg/init.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/fs/acl.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/process/init.lua`
-- `/home/daiaji/repo/pecmd_compat/win-utils/process/popen.lua`
+
+已迁移到 `lua-ffi-bindings`：
+
+- `crypto.lua`
+- `sys/user.lua`
+- `sys/dev_ctrl.lua`
+- `reg/init.lua`
+- `fs/acl.lua`
+- `process/init.lua`
+- `process/popen.lua`
 
 目标状态：
 
@@ -202,15 +228,12 @@
 
 建议按以下顺序推进：
 
-1. 清理 `win-utils` 内联 `ffi.cdef`，集中迁到 `lua-ffi-bindings`。
-2. 给 `disk` 破坏性 API 建立统一 `confirm` / `dry_run` / 日志安全闸门。
-3. 把 `process.popen.run` 的 capture 模型合并进 `process.exec(opts)`。
-4. 补 `net` 的 IPv4/DNS/NTP 设置能力。
-5. 补 `fs.read/write` 的 encoding、offset/length、atomic。
-6. 补最小 `ui.message_box`、open/save file dialog、screenshot capture。
-7. 对 `reg.with_hive` / `HIVE -super`、input/window、disk destructive path 做 Windows/PE 实机核验。
-8. 补 BitLocker 只读检测、BCD/boot repair recipe 定位、Shell32/COM 依赖探测。
-9. 建立测试分层：纯 Lua/离线、Windows CI、管理员权限、WinPE 实机、真实磁盘/USB destructive。
+1. 在 Windows/MSVC 环境编译 `peshell_minimal`，打包 `cimgui.dll`，运行 `imgui-native-smoke`。
+2. 对 `reg.with_hive` / `HIVE -super`、input/window、disk destructive path 做 Windows/PE 实机核验。
+3. 补 Win32+D3D11 resize/device-lost 处理，以及 AHK v2-like `ui.gui` 骨架和 CGI 类工具优先控件。
+4. 继续清理剩余 `win-utils/input.lua`、`win-utils/window.lua` 内联 `ffi.cdef`。
+5. BCD/boot repair 先落到 `win-kit` recipe，Shell32/COM 依赖补可用性探测。
+6. 建立测试分层：纯 Lua/离线、Windows CI、管理员权限、WinPE 实机、真实磁盘/USB destructive。
 
 ## 当前阶段结论
 

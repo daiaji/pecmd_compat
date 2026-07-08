@@ -104,7 +104,7 @@ Lua 是这里的主脚本语言，不是 PECMD 语法的宿主。流程控制、
 - `ENVI/SET` 的 PE 变量、析构、递归解释、`EnviMode`、`EXPORTLOCAL/FORCELOCAL` 语义。
 - `COME/NOTE` 注释开关。
 - `IMPORT` 机械 include 语义。
-- 旧 WinCMD 控件 DSL：`CHEK/EDIT/TABL/...` 的命令语法。
+- 旧 WinCMD 控件 DSL：`CHEK/EDIT/TABL/...` 的命令语法。GUI 能力改用 AutoHotkey v2-like 的 Lua 对象 API 表达，而不是复刻 PECMD 参数语法。
 - DLL 版 PECMD 入口和 `rundll32 PECMD.DLL,main` 兼容。
 - 旧插件发现机制：`pecmd.$命令.dll`、`pecmdplugin.*.PEI`、资源脚本插件优先级。
 - `HIDE` 进程隐藏。

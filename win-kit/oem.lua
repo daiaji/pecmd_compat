@@ -3,6 +3,19 @@ local win = require 'win-utils'
 local M = {}
 local KEY_OEM = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OEMInformation"
 
+function M.plan(info)
+    return {
+        ok = true,
+        task = 'init_pe',
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = 'set_oem_information', keys = info },
+        },
+        warnings = {},
+    }
+end
+
 -- [API] 设置系统属性中的 OEM 信息
 -- @param info: table
 --    info.manufacturer (string)
@@ -11,8 +24,10 @@ local KEY_OEM = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OEMInformation"
 --    info.support_phone (string)
 --    info.logo_path (string) - 必须是 .bmp 格式
 --    info.support_hours (string)
-function M.set(info)
+function M.set(info, opts)
+    opts = opts or {}
     if type(info) ~= "table" then return false, "Table expected" end
+    if opts.dry_run then return true, M.plan(info) end
     
     local k, err = win.reg.open_key("HKLM", KEY_OEM)
     if not k then return false, "Registry access failed: " .. tostring(err) end
@@ -38,7 +53,7 @@ function M.set(info)
     end
     
     k:close()
-    return true
+    return true, { ok = true, task = 'init_pe', changed = true, action = 'set_oem_information' }
 end
 
 -- [API] 读取当前 OEM 信息

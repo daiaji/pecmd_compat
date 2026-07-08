@@ -1,128 +1,156 @@
 local win = require 'win-utils'
 local bit = require 'bit'
 
--- ============================================================================
--- 配置区域
--- ============================================================================
--- 模拟场景：
--- 当前系统是 WinPE，挂载了目标系统到 D:\
--- 驱动包位于 U:\Drivers
-local DRIVER_SOURCE = [[U:\Drivers]]
-local OFFLINE_IMAGE = [[D:\]]
+local M = {}
 
-print("=== Smart Offline DEVI Demo ===")
-print("Context: Injecting drivers from " .. DRIVER_SOURCE .. " into offline image " .. OFFLINE_IMAGE)
-
--- ============================================================================
--- 1. 扫描本机硬件 ID
--- ============================================================================
--- 即便是离线注入，我们通常也是为了让目标系统能在 *当前机器* 上启动，
--- 所以我们依据当前 WinPE 识别到的物理硬件 ID 进行匹配。
-print("\n[Step 1] Scanning local hardware IDs...")
-
--- enum_devices 默认返回所有设备
-local local_devs = win.sys.dev_info.enum_devices({ present = true })
-if not local_devs then
-    print("Error: Failed to enumerate devices.")
-    return
+local function default_log(fmt, ...)
+    print(string.format("[SmartOfflineDEVI] " .. fmt, ...))
 end
+
+local function get_logger(opts)
+    if opts and opts.logger then
+        return opts.logger
+    end
+    return default_log
+end
+
+function M.plan(opts)
+    opts = opts or {}
+    local driver_source = opts.driver_source or opts.root or opts.driver_root or (opts.roots and opts.roots[1]) or [[U:\Drivers]]
+    local offline_image = opts.offline_image or [[D:\]]
+
+    return {
+        ok = true,
+        task = 'install_drivers',
+        offline = true,
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = 'scan_local_hardware_ids' },
+            { action = 'scan_matching_inf_files', root = driver_source },
+            { action = 'inject_offline_drivers', image = offline_image },
+        },
+        warnings = {},
+    }
+end
+
+function M.inject(opts)
+    opts = opts or {}
+    if opts.dry_run then
+        return M.plan(opts)
+    end
+
+    local log = get_logger(opts)
+    local driver_source = opts.driver_source or opts.root or opts.driver_root or (opts.roots and opts.roots[1]) or [[U:\Drivers]]
+    local offline_image = opts.offline_image or [[D:\]]
+
+    log("Injecting drivers from %s into offline image %s", driver_source, offline_image)
+
+    -- 即便是离线注入，我们通常也是为了让目标系统能在当前机器上启动，
+    -- 所以依据当前 WinPE 识别到的物理硬件 ID 进行匹配。
+    log("Scanning local hardware IDs...")
+
+    local local_devs = win.sys.dev_info.enum_devices({ present = true })
+    if not local_devs then
+        return nil, { task = 'install_drivers', code = 'device_enum_failed', message = 'Failed to enumerate devices' }
+    end
 
 -- 构建目标 ID 查找表 (Set)
-local target_ids = {}
-local id_count = 0
+    local target_ids = {}
+    local id_count = 0
 
-for _, dev in ipairs(local_devs) do
-    if dev.hwids then
-        for _, id in ipairs(dev.hwids) do 
-            target_ids[id:upper()] = true 
-            id_count = id_count + 1
+    for _, dev in ipairs(local_devs) do
+        if dev.hwids then
+            for _, id in ipairs(dev.hwids) do
+                target_ids[id:upper()] = true
+                id_count = id_count + 1
+            end
+        end
+        if dev.compat_ids then
+            for _, id in ipairs(dev.compat_ids) do
+                target_ids[id:upper()] = true
+                id_count = id_count + 1
+            end
         end
     end
-    if dev.compat_ids then
-        for _, id in ipairs(dev.compat_ids) do 
-            target_ids[id:upper()] = true 
-            id_count = id_count + 1
-        end
+
+    log("Found %d devices, collected %d unique hardware IDs.", #local_devs, id_count)
+
+    log("Scanning drivers in '%s'...", driver_source)
+
+    if not win.fs.is_dir(driver_source) then
+        return nil, { task = 'install_drivers', code = 'driver_source_missing', message = 'Driver source directory not found', path = driver_source }
     end
-end
 
-print(string.format("    Found %d devices, collected %d unique hardware IDs.", #local_devs, id_count))
+    local matched_infs = {}
 
--- ============================================================================
--- 2. 扫描并匹配 INF 文件
--- ============================================================================
-print(string.format("\n[Step 2] Scanning drivers in '%s'...", DRIVER_SOURCE))
+    local function scan_match_recursive(dir)
+        for name, attr in win.fs.scandir(dir) do
+            if name ~= "." and name ~= ".." then
+                local full_path = dir .. "\\" .. name
+                local is_dir = bit.band(attr, 0x10) ~= 0
 
-if not win.fs.is_dir(DRIVER_SOURCE) then
-    print("Error: Driver source directory not found. Please update DRIVER_SOURCE path.")
-    return
-end
+                if is_dir then
+                    scan_match_recursive(full_path)
+                elseif name:match("%.[iI][nN][fF]$") then
+                    local supported_ids = win.sys.inf.get_hwids(full_path)
 
-local matched_infs = {}
-
--- 递归扫描函数
-local function scan_match_recursive(dir)
-    for name, attr in win.fs.scandir(dir) do
-        if name ~= "." and name ~= ".." then
-            local full_path = dir .. "\\" .. name
-            local is_dir = bit.band(attr, 0x10) ~= 0
-            
-            if is_dir then
-                scan_match_recursive(full_path)
-            elseif name:match("%.[iI][nN][fF]$") then
-                -- 核心逻辑：调用 sys.inf 模块解析 INF
-                local supported_ids = win.sys.inf.get_hwids(full_path)
-                
-                if supported_ids then
-                    -- 检查该 INF 支持的 ID 是否在我们的目标硬件列表中
-                    for id, _ in pairs(supported_ids) do
-                        if target_ids[id:upper()] then
-                            print("    [MATCH] " .. name .. " matches hardware " .. id)
-                            table.insert(matched_infs, full_path)
-                            break -- 只要匹配到一个 ID，该 INF 就需要安装
+                    if supported_ids then
+                        for id, _ in pairs(supported_ids) do
+                            if target_ids[id:upper()] then
+                                log("MATCH: %s matches hardware %s", name, id)
+                                table.insert(matched_infs, full_path)
+                                break
+                            end
                         end
                     end
                 end
             end
         end
     end
-end
 
-scan_match_recursive(DRIVER_SOURCE)
-print(string.format("    Total matched INF files: %d", #matched_infs))
+    scan_match_recursive(driver_source)
+    log("Total matched INF files: %d", #matched_infs)
 
--- ============================================================================
--- 3. 执行离线注入
--- ============================================================================
-if #matched_infs == 0 then
-    print("\n[Step 3] No matching drivers found to inject.")
-    return
-end
+    if #matched_infs == 0 then
+        return { ok = true, task = 'install_drivers', offline = true, changed = false, injected_count = 0 }
+    end
 
-print(string.format("\n[Step 3] Injecting into offline image: %s", OFFLINE_IMAGE))
+    log("Injecting into offline image: %s", offline_image)
 
--- 调用 DismApi 批量注入
--- 我们逐个注入以便于显示进度
-for i, inf in ipairs(matched_infs) do
-    io.write(string.format("    [%d/%d] Injecting %s ... ", i, #matched_infs, win.fs.path.basename(inf)))
-    
-    local ok, res = win.sys.dism.add_driver_offline(OFFLINE_IMAGE, inf, { force_unsigned = true })
-    
-    if ok then
-        print("OK")
-    else
-        print("FAILED")
-        if type(res) == "string" then 
-            print("      Error: " .. res) 
-        elseif type(res) == "table" and res.errors then
-            for _, e in ipairs(res.errors) do 
-                print("      Log: " .. e) 
+    local injected_count = 0
+    local errors = {}
+
+    for i, inf in ipairs(matched_infs) do
+        log("[%d/%d] Injecting %s", i, #matched_infs, win.fs.path.basename(inf))
+
+        local ok, res = win.sys.dism.add_driver_offline(offline_image, inf, { force_unsigned = opts.force_unsigned ~= false })
+
+        if ok then
+            injected_count = injected_count + 1
+        else
+            table.insert(errors, { inf = inf, result = res })
+            if type(res) == "string" then
+                log("Failed: %s", res)
+            elseif type(res) == "table" and res.errors then
+                for _, e in ipairs(res.errors) do
+                    log("DISM log: %s", e)
+                end
             end
         end
     end
+
+    win.sys.dism.shutdown()
+
+    return {
+        ok = #errors == 0,
+        task = 'install_drivers',
+        offline = true,
+        changed = injected_count > 0,
+        matched_count = #matched_infs,
+        injected_count = injected_count,
+        errors = errors,
+    }
 end
 
--- 清理 DISM 资源
-win.sys.dism.shutdown()
-
-print("\n=== Driver Injection Completed ===")
+return M

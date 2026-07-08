@@ -1,12 +1,32 @@
 local win = require 'win-utils'
-local scanner = require 'win-kit.driver_scanner' -- 使用新的扫描模块
 
 local M = {}
+
+function M.plan(cab_path, opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'install_drivers',
+        dry_run = true,
+        changed = false,
+        cab_path = cab_path,
+        steps = {
+            { action = 'extract_cab', path = cab_path },
+            { action = 'scan_extracted_inf_files' },
+            { action = 'install_extracted_inf_files' },
+            { action = 'cleanup_extract_dir' },
+        },
+        warnings = {},
+    }
+end
 
 -- [API] 安装 CAB 驱动包并显示详细进度
 -- @param cab_path: CAB 文件路径
 -- @return: boolean success
-function M.install_cab_verbose(cab_path)
+function M.install_cab_verbose(cab_path, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan(cab_path, opts) end
+
     print("[DriverInstall] Processing CAB: " .. cab_path)
     
     local extract_dir = os.getenv("TEMP") .. "\\Drv_Extract_" .. os.time()
@@ -35,6 +55,7 @@ function M.install_cab_verbose(cab_path)
     -- res 包含 extracted_path，如果 win-utils 版本正确返回
     local target_path = (type(res) == "table" and res.extracted_path) or extract_dir
     
+    local scanner = require 'win-kit.driver_scanner' -- 使用新的扫描模块
     local s_cnt, f_cnt, errs = scanner.install_recursive(target_path, {
         cb = function(path, idx, total)
             -- 显示简短文件名
@@ -54,7 +75,7 @@ function M.install_cab_verbose(cab_path)
         for _, e in ipairs(errs) do print("  - " .. e) end
     end
     
-    return true
+    return true, { ok = true, task = 'install_drivers', changed = s_cnt > 0, success_count = s_cnt, fail_count = f_cnt, errors = errs }
 end
 
 return M

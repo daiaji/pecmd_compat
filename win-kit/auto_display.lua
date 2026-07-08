@@ -2,10 +2,39 @@ local win = require 'win-utils'
 
 local M = {}
 
+local function default_log(fmt, ...)
+    print(string.format("[Display] " .. fmt, ...))
+end
+
+local function get_logger(opts)
+    if opts and opts.logger then return opts.logger end
+    return default_log
+end
+
+function M.plan(opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'setup_display',
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = 'enumerate_display_modes' },
+            { action = 'select_best_display_mode' },
+            { action = 'apply_display_mode' },
+        },
+        warnings = {},
+    }
+end
+
 -- [API] 自动应用最佳显示模式
 -- 策略：分辨率优先 > 刷新率优先 > 色深优先
-function M.auto_set()
-    print("[Display] Detecting supported modes...")
+function M.auto_set(opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan(opts) end
+
+    local log = get_logger(opts)
+    log("Detecting supported modes...")
     local modes = win.sys.display.get_modes()
     
     if #modes == 0 then 
@@ -28,15 +57,14 @@ function M.auto_set()
     end)
     
     local best = modes[1]
-    print(string.format("[Display] Applying best mode: %dx%d @ %dHz (%d bit)", 
-        best.w, best.h, best.hz, best.bpp))
+    log("Applying best mode: %dx%d @ %dHz (%d bit)", best.w, best.h, best.hz, best.bpp)
     
     local ok, err = win.sys.display.set_res(best.w, best.h, best.hz, best.bpp)
     if not ok then
         return false, "Failed to apply mode: " .. tostring(err)
     end
     
-    return true
+    return true, { ok = true, task = 'setup_display', changed = true, mode = best }
 end
 
 return M

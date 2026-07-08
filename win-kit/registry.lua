@@ -1,7 +1,24 @@
 local win = require 'win-utils'
-local raw_reg = win.reg -- 引用底层 FFI 模块
 
 local M = {}
+
+local function raw_reg()
+    return win.reg
+end
+
+function M.plan(action, opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'registry',
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = action, key_path = opts.key_path, value_name = opts.value_name, file_path = opts.file_path },
+        },
+        warnings = {},
+    }
+end
 
 -- ============================================================================
 -- 基础配置与辅助函数
@@ -77,9 +94,7 @@ function M.read(key_path, value_name, default_val)
     local root, sub = parse_path(key_path)
     if not root then return default_val end
     
-    -- 底层 open_key 目前是 Create 语义，这意味着读取不存在的键会创建空键
-    -- 在配置工具场景下通常可以接受，若需严格只读需扩展底层 API
-    local k = raw_reg.open_key(root, sub)
+    local k = raw_reg().open_existing_key(root, sub)
     if not k then return default_val end
     
     local res = k:read(value_name or "")
@@ -97,11 +112,14 @@ end
 --        "string"(sz), "expand"(expand_sz), "multi"(multi_sz), 
 --        "dword", "qword", "binary"
 -- @return: boolean success, string error_msg
-function M.write(key_path, value_name, data, type_hint)
+function M.write(key_path, value_name, data, type_hint, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('write_value', { key_path = key_path, value_name = value_name }) end
+
     local root, sub = parse_path(key_path)
     if not root then return false, sub end -- sub contains error msg
     
-    local k, err = raw_reg.open_key(root, sub)
+    local k, err = raw_reg().open_key(root, sub)
     if not k then return false, "OpenKey failed: " .. tostring(err) end
     
     local val_name = value_name or ""
@@ -136,7 +154,8 @@ function M.write(key_path, value_name, data, type_hint)
     local ok, w_err = k:write(val_name, data, target_type)
     k:close()
     
-    return ok, w_err
+    if not ok then return false, w_err end
+    return true, { ok = true, task = 'registry', changed = true, action = 'write_value', key_path = key_path, value_name = val_name }
 end
 
 --- 删除键或值
@@ -145,13 +164,16 @@ end
 --        如果提供了值名称，则删除该值。
 --        如果为 nil，则**递归删除整个键**及其子键。
 -- @return: boolean success, string error_msg
-function M.delete(key_path, value_name)
+function M.delete(key_path, value_name, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan(value_name and 'delete_value' or 'delete_key', { key_path = key_path, value_name = value_name }) end
+
     local root, sub = parse_path(key_path)
     if not root then return false, sub end
     
     if value_name then
         -- 模式 A: 删除值
-        local k = raw_reg.open_key(root, sub)
+        local k = raw_reg().open_key(root, sub)
         if not k then return true end -- 键不存在，视为删除成功
         
         local ok, err = k:delete_value(value_name)
@@ -161,7 +183,7 @@ function M.delete(key_path, value_name)
         return ok, err
     else
         -- 模式 B: 删除键 (递归)
-        return raw_reg.delete_key(root, sub, true)
+        return raw_reg().delete_key(root, sub, true)
     end
 end
 
@@ -177,13 +199,15 @@ end
 --       }
 --    }
 -- @return: boolean success
-function M.import(base_path, data_table)
+function M.import(base_path, data_table, opts)
+    opts = opts or {}
     if type(data_table) ~= "table" then return false, "Table expected" end
+    if opts.dry_run then return true, M.plan('import_tree', { key_path = base_path }) end
     
     -- 确保基础路径存在
     local root, sub = parse_path(base_path)
     if not root then return false, "Invalid base path" end
-    local k = raw_reg.open_key(root, sub)
+    local k = raw_reg().open_key(root, sub)
     if not k then return false, "Failed to create base key" end
     k:close()
     
@@ -195,18 +219,18 @@ function M.import(base_path, data_table)
         if type(val) == "table" and not is_array then
             -- 递归处理子键
             local sub_path = base_path .. "\\" .. key
-            local ok, err = M.import(sub_path, val)
+            local ok, err = M.import(sub_path, val, opts)
             if not ok then return false, err end
         else
             -- 写入值 (自动推断类型)
-            local ok, err = M.write(base_path, key, val)
+            local ok, err = M.write(base_path, key, val, nil, opts)
             if not ok then 
                 return false, string.format("Failed to write %s\\%s: %s", base_path, key, tostring(err)) 
             end
         end
     end
     
-    return true
+    return true, { ok = true, task = 'registry', changed = true, action = 'import_tree', key_path = base_path }
 end
 
 -- ============================================================================
@@ -215,7 +239,10 @@ end
 
 --- 强制重置权限 (Take Ownership + Full Access)
 -- 对标 PECMD HIVE -super，用于处理受保护的注册表项
-function M.reset_acl(key_path)
+function M.reset_acl(key_path, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('reset_acl', { key_path = key_path }) end
+
     local acl = require 'win-utils.reg.acl'
     if not acl then return false, "ACL module missing" end
     return acl.reset(key_path)
@@ -224,13 +251,19 @@ end
 --- 加载 Hive 文件
 -- @param key_path: 挂载点 (e.g. "HKLM\TempHive")
 -- @param file_path: Hive 文件路径
-function M.load_hive(key_path, file_path)
-    return raw_reg.load_hive(key_path, file_path)
+function M.load_hive(key_path, file_path, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('load_hive', { key_path = key_path, file_path = file_path }) end
+
+    return raw_reg().load_hive(key_path, file_path)
 end
 
 --- 卸载 Hive
-function M.unload_hive(key_path)
-    return raw_reg.unload_hive(key_path)
+function M.unload_hive(key_path, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('unload_hive', { key_path = key_path }) end
+
+    return raw_reg().unload_hive(key_path)
 end
 
 return M

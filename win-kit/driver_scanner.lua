@@ -1,9 +1,24 @@
-local ffi = require 'ffi'
 local win = require 'win-utils'
-local util = win.core
-local fs = win.fs
+local bit = require 'bit'
 
 local M = {}
+
+function M.plan(root_path, opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'install_drivers',
+        dry_run = true,
+        changed = false,
+        root = root_path,
+        recursive = opts.recursive ~= false,
+        steps = {
+            { action = 'scan_inf_files', root = root_path },
+            { action = 'install_inf_files', force = opts.force == true },
+        },
+        warnings = {},
+    }
+end
 
 -- 辅助：获取文件扩展名 (包含点)
 local function get_ext(path)
@@ -20,6 +35,10 @@ end
 -- @return: success_count, fail_count, error_list
 function M.install_recursive(root_path, opts)
     opts = opts or {}
+    if opts.dry_run then return 0, 0, {}, M.plan(root_path, opts) end
+
+    local util = win.core
+    local fs = win.fs
     local recursive = opts.recursive ~= false
     local force = opts.force or false
     local cb = opts.cb

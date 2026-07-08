@@ -1,9 +1,22 @@
 local win = require 'win-utils'
-local scanner = require 'win-kit.driver_scanner'
-local cab_installer = require 'win-kit.driver_installer'
-local smart_logic = require 'win-kit.smart_devi' -- 如果您之前有这个逻辑，或者集成在这里
 
 local M = {}
+
+function M.plan(path, opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'install_drivers',
+        dry_run = true,
+        changed = false,
+        path = path,
+        steps = {
+            { action = 'classify_driver_path', path = path },
+            { action = 'install_driver_path', smart = opts.smart == true, recursive = opts.recursive ~= false },
+        },
+        warnings = {},
+    }
+end
 
 -- =============================================================================
 -- 1. 驱动安装 (Installation)
@@ -16,6 +29,8 @@ local M = {}
 --        smart=true: 仅安装硬件 ID 匹配的驱动 (优化速度)
 function M.install(path, opts)
     opts = opts or {}
+    if opts.dry_run then return true, M.plan(path, opts) end
+
     local p = win.core.normalize_path(path)
     
     if not win.fs.exists(p) then
@@ -25,14 +40,15 @@ function M.install(path, opts)
     -- Case A: CAB 包
     if win.fs.is_file(p) and p:match("%.[cC][aA][bB]$") then
         print("[DEVI] Installing CAB: " .. p)
-        return cab_installer.install_cab_verbose(p)
+        local cab_installer = require 'win-kit.driver_installer'
+        return cab_installer.install_cab_verbose(p, opts)
     end
     
     -- Case B: INF 文件 (单个)
     if win.fs.is_file(p) and p:match("%.[iI][nN][fF]$") then
         print("[DEVI] Installing INF: " .. p)
         local ok, reboot = win.sys.driver.install(p, opts.force)
-        if ok then return true, reboot end
+        if ok then return true, { ok = true, task = 'install_drivers', changed = true, reboot_needed = reboot, path = p } end
         -- 如果直接安装失败，尝试添加到存储区
         local ok_store, err = win.sys.driver.add_to_store(p)
         return ok_store, err
@@ -49,7 +65,7 @@ function M.install(path, opts)
             missing_ids = win.sys.dev_info.get_missing_driver_ids()
             if next(missing_ids) == nil then
                 print("[DEVI] No missing drivers found. Skipping.")
-                return true, 0
+                return true, { ok = true, task = 'install_drivers', changed = false, skipped = true, success_count = 0 }
             end
         end
         
@@ -81,7 +97,8 @@ function M.install(path, opts)
         -- 如果 smart=true，建议使用之前提供的 smart_devi.lua 逻辑。
         
         -- 这里演示标准全量安装:
-        local s, f, errs = scanner.install_recursive(p, {
+        local scanner = require 'win-kit.driver_scanner'
+        local s, f, errs, detail = scanner.install_recursive(p, {
             recursive = opts.recursive,
             force = opts.force,
             cb = function(f_path, i, t) 
@@ -90,7 +107,7 @@ function M.install(path, opts)
         })
         
         print(string.format("[DEVI] Result: %d Success, %d Failed", s, f))
-        return true, s
+        return true, detail or { ok = f == 0, task = 'install_drivers', changed = s > 0, success_count = s, fail_count = f, errors = errs }
     end
     
     return false, "Unsupported file type"

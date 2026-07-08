@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docs-and-scripts:
+    name: Docs and script checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+
+      - name: Validate feature index JSON
+        run: python3 -m json.tool features.json >/dev/null
+
+      - name: Lua script syntax smoke
+        run: |
+          luajit -e "assert(loadfile('scripts/ci/analyze-log.lua'))"
+
+      - name: win-kit offline tests
+        run: |
+          luajit win-kit/tests/run_offline.lua
+
+      - name: peshell profile runner tests
+        run: |
+          cd peshell_minimal
+          luajit scripts/test_profile_runner.lua
+
+      - name: Exercise CI log analyzer
+        run: |
+          mkdir -p .ci-debug
+          cat > .ci-debug/run.json <<'JSON'
+          {"databaseId":1,"url":"https://example.invalid/run/1","status":"completed","conclusion":"failure","workflowName":"fixture","headSha":"deadbeef","headBranch":"main"}
+          JSON
+          cat > .ci-debug/failed.log <<'LOG'
+          luajit: sample.lua:1: sample failure
+          stack traceback:
+          LOG
+          luajit scripts/ci/analyze-log.lua .ci-debug/run.json .ci-debug/failed.log > ci-debug-report.md
+          grep -q "Lua runtime error" ci-debug-report.md

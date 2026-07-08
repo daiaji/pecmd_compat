@@ -1,29 +1,20 @@
-local ffi = require 'ffi'
-local bit = require 'bit'
 local win = require 'win-utils'
-local types = win.disk.types
 
 local M = {}
 
--- 64位常量定义 (GPT 属性)
--- LuaJIT 的 bit 库只能处理 32 位，必须使用 cdata + 算术运算处理高位
-local GPT_ATTR_READONLY = 0x1000000000000000ULL
-local GPT_ATTR_HIDDEN   = 0x4000000000000000ULL
-local GPT_ATTR_NODRIVE  = 0x8000000000000000ULL
-
--- 辅助：简单的 64 位位设置 (仅用于特定 Flag，不通用)
--- 原理：如果位未置位，则加；如果位已置位，则减 (用于清除)
-local function set_flag_64(val64, flag64, enable)
-    -- 使用 FFI 算术运算检测位状态
-    -- (val & flag) == flag
-    local has_flag = (val64 % (flag64 * 2ULL)) >= flag64
-    
-    if enable then
-        if not has_flag then return val64 + flag64 end
-    else
-        if has_flag then return val64 - flag64 end
-    end
-    return val64
+function M.plan(action, drive_idx, part_idx, value)
+    return {
+        ok = true,
+        task = 'partition_tools',
+        dry_run = true,
+        changed = false,
+        drive_index = drive_idx,
+        partition = part_idx,
+        steps = {
+            { action = action, drive_index = drive_idx, partition = part_idx, value = value },
+        },
+        warnings = {},
+    }
 end
 
 -- 辅助：获取指定分区的布局信息
@@ -57,7 +48,10 @@ end
 -- @param drive_idx: 物理磁盘号 (0, 1...)
 -- @param part_idx: 分区号 (1, 2...)
 -- @param new_id: MBR(数字, 如 0x07) 或 GPT(GUID 字符串)
-function M.set_id(drive_idx, part_idx, new_id)
+function M.set_id(drive_idx, part_idx, new_id, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('set_partition_id', drive_idx, part_idx, new_id) end
+
     local drive = win.disk.physical.open(drive_idx, "rw", true)
     if not drive then return false, "Open drive failed" end
     
@@ -65,19 +59,24 @@ function M.set_id(drive_idx, part_idx, new_id)
     local ok, err = win.disk.layout.set_partition_type(drive, part_idx, new_id)
     
     drive:close()
-    return ok, err
+    if not ok then return false, err end
+    return true, { ok = true, task = 'partition_tools', changed = true, action = 'set_partition_id', drive_index = drive_idx, partition = part_idx, value = new_id }
 end
 
 -- [API] 设置 MBR 分区激活状态
 -- 对标 PECMD: PART <磁盘>#<分区> -a / a
-function M.set_active(drive_idx, part_idx, active)
+function M.set_active(drive_idx, part_idx, active, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('set_active', drive_idx, part_idx, active) end
+
     local drive = win.disk.physical.open(drive_idx, "rw", true)
     if not drive then return false, "Open drive failed" end
     
     local ok, err = win.disk.layout.set_active(drive, part_idx, active)
     
     drive:close()
-    return ok, err
+    if not ok then return false, err end
+    return true, { ok = true, task = 'partition_tools', changed = true, action = 'set_active', drive_index = drive_idx, partition = part_idx, value = active }
 end
 
 -- [API] 智能显隐分区
@@ -86,59 +85,17 @@ end
 -- @param drive_idx: 磁盘号
 -- @param part_idx: 分区号
 -- @param hidden: boolean (true=隐藏, false=显示)
-function M.set_hidden(drive_idx, part_idx, hidden)
-    -- 1. 获取当前状态以判断分区表类型
+function M.set_hidden(drive_idx, part_idx, hidden, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('set_hidden', drive_idx, part_idx, hidden) end
+
     local info, part, err = get_part_info(drive_idx, part_idx)
     if not info then return false, err end
     
-    -- 打开驱动器准备写入
     local drive = win.disk.physical.open(drive_idx, "rw", true)
     if not drive then return false, "Open drive rw failed" end
     
-    local success = false
-    local msg = nil
-    
-    -- 2. 执行显隐策略
-    if info.style == "GPT" then
-        -- === GPT 策略 ===
-        -- 修改 Attribute Bits: Hidden(62) + NoDriveLetter(63)
-        local current = ffi.cast("uint64_t", part.attr)
-        local new_attr = current
-        
-        new_attr = set_flag_64(new_attr, GPT_ATTR_HIDDEN, hidden)
-        new_attr = set_flag_64(new_attr, GPT_ATTR_NODRIVE, hidden)
-        
-        if new_attr ~= current then
-            success, msg = win.disk.layout.set_partition_attributes(drive, part.num, new_attr)
-        else
-            success = true; msg = "No change needed"
-        end
-        
-    else
-        -- === MBR 策略 ===
-        -- 修改 PartitionType ID: +/- 0x10
-        local current_id = part.type
-        local new_id = current_id
-        
-        if hidden then
-            -- 常见 ID 映射: 0x07(NTFS)->0x17, 0x0B(FAT32)->0x1B
-            -- 如果第4位(0x10)未置位，则加上
-            if bit.band(current_id, 0x10) == 0 then
-                new_id = bit.bor(current_id, 0x10)
-            end
-        else
-            -- 反之，如果第4位已置位，则清除
-            if bit.band(current_id, 0x10) ~= 0 then
-                new_id = bit.band(current_id, bit.bnot(0x10))
-            end
-        end
-        
-        if new_id ~= current_id then
-            success, msg = win.disk.layout.set_partition_type(drive, part.num, new_id)
-        else
-            success = true; msg = "No change needed"
-        end
-    end
+    local success, msg = win.disk.layout.set_hidden(drive, part.num, hidden)
     
     drive:close()
     
@@ -165,29 +122,27 @@ function M.set_hidden(drive_idx, part_idx, hidden)
         end
     end
     
-    return success, msg
+    if not success then return false, msg end
+    return true, { ok = true, task = 'partition_tools', changed = true, action = 'set_hidden', drive_index = drive_idx, partition = part_idx, value = hidden }
 end
 
 -- [API] 简易只读设置 (GPT Only)
 -- MBR 不支持标准只读位，通常忽略
-function M.set_readonly(drive_idx, part_idx, readonly)
+function M.set_readonly(drive_idx, part_idx, readonly, opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan('set_readonly', drive_idx, part_idx, readonly) end
+
     local info, part, err = get_part_info(drive_idx, part_idx)
     if not info then return false, err end
-    
-    if info.style ~= "GPT" then 
-        return false, "Read-only attribute is GPT only" 
-    end
-    
+
     local drive = win.disk.physical.open(drive_idx, "rw", true)
     if not drive then return false, "Open drive failed" end
-    
-    local current = ffi.cast("uint64_t", part.attr)
-    local new_attr = set_flag_64(current, GPT_ATTR_READONLY, readonly)
-    
-    local ok, res_err = win.disk.layout.set_partition_attributes(drive, part.num, new_attr)
+
+    local ok, res_err = win.disk.layout.set_readonly(drive, part.num, readonly)
     
     drive:close()
-    return ok, res_err
+    if not ok then return false, res_err end
+    return true, { ok = true, task = 'partition_tools', changed = true, action = 'set_readonly', drive_index = drive_idx, partition = part_idx, value = readonly }
 end
 
 return M

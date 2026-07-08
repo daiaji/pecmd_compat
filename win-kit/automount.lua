@@ -3,6 +3,31 @@ local types = win.disk.types -- 使用 win-utils 导出的常量
 
 local M = {}
 
+local function default_log(fmt, ...)
+    print(string.format("[AutoMount] " .. fmt, ...))
+end
+
+local function get_logger(opts)
+    if opts and opts.logger then return opts.logger end
+    return default_log
+end
+
+function M.plan(opts)
+    opts = opts or {}
+    return {
+        ok = true,
+        task = 'assign_drive_letters',
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = 'scan_physical_disks' },
+            { action = 'filter_mountable_partitions' },
+            { action = 'assign_missing_drive_letters' },
+        },
+        warnings = {},
+    }
+end
+
 -- 定义不需要自动分配盘符的特殊分区类型 GUID (GPT)
 local IGNORE_GUIDS = {
     [types.GPT.MSR] = true,       -- Microsoft Reserved
@@ -20,11 +45,16 @@ local IGNORE_MBR_TYPES = {
 -- [API] 智能挂载所有可见分区
 -- 对标 PECMD DISK 命令的自动整理逻辑
 -- 策略：遍历所有物理磁盘 -> 遍历所有分区 -> 过滤特殊分区 -> 分配未使用盘符
-function M.auto_mount_all()
-    print("[AutoMount] Scanning physical disks...")
+function M.auto_mount_all(opts)
+    opts = opts or {}
+    if opts.dry_run then return true, M.plan(opts) end
+
+    local log = get_logger(opts)
+    log("Scanning physical disks...")
     
     local drives = win.disk.physical.list()
     local assigned_count = 0
+    local failures = {}
     
     -- 缓存当前的卷列表，用于快速检查是否已有盘符
     local vol_list = win.disk.volume.list() or {}
@@ -38,7 +68,7 @@ function M.auto_mount_all()
             hDrive:close()
             
             if layout_info then
-                print(string.format("  > Checking Disk %d (%s)...", drive.index, layout_info.style))
+                log("Checking Disk %d (%s)...", drive.index, layout_info.style)
                 
                 for _, part in ipairs(layout_info.parts) do
                     -- 过滤掉无效分区 (Offset 0 或 Size 0)
@@ -74,11 +104,11 @@ function M.auto_mount_all()
                                 if not has_letter then
                                     local ok, letter = win.disk.volume.assign(drive.index, part.off)
                                     if ok then
-                                        print(string.format("    + Mounted Part %d (Offset %d) to %s", 
-                                            part.num, part.off, letter))
+                                        log("Mounted Part %d (Offset %d) to %s", part.num, part.off, letter)
                                         assigned_count = assigned_count + 1
                                     else
-                                        print(string.format("    ! Failed to mount Part %d: %s", part.num, letter))
+                                        log("Failed to mount Part %d: %s", part.num, letter)
+                                        table.insert(failures, { disk = drive.index, partition = part.num, error = letter })
                                     end
                                 end
                             end
@@ -89,8 +119,14 @@ function M.auto_mount_all()
         end
     end
     
-    print(string.format("[AutoMount] Finished. Assigned %d new letters.", assigned_count))
-    return assigned_count
+    log("Finished. Assigned %d new letters.", assigned_count)
+    return assigned_count, {
+        ok = #failures == 0,
+        task = 'assign_drive_letters',
+        changed = assigned_count > 0,
+        assigned_count = assigned_count,
+        failures = failures,
+    }
 end
 
 return M

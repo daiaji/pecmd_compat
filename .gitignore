@@ -1,2 +1,4 @@
 /peshell_minimal/
 /win-utils/
+/.ci-debug/
+/ci-debug-report.md

@@ -1,9 +1,17 @@
 local win = require 'win-utils'
-local bit = require 'bit'
+
+local M = {}
 
 -- 简单的日志打印
-local function log(fmt, ...)
+local function default_log(fmt, ...)
     print(string.format("[SmartDEVI] " .. fmt, ...))
+end
+
+local function get_logger(opts)
+    if opts and opts.logger then
+        return opts.logger
+    end
+    return default_log
 end
 
 -- 快速读取文件内容到字符串
@@ -23,7 +31,9 @@ end
 --    "smart" (默认): 仅安装 HardwareID 匹配缺失驱动设备的 INF
 --    "force": 强制安装目录下所有 INF
 --    "all": 扫描所有设备（不仅是有问题的），尝试更新驱动
-local function smart_install(drv_path, mode)
+local function smart_install(drv_path, mode, opts)
+    opts = opts or {}
+    local log = get_logger(opts)
     mode = mode or "smart"
     
     log("Starting Driver Install. Mode: %s", mode)
@@ -58,14 +68,14 @@ local function smart_install(drv_path, mode)
         
         if count == 0 and mode == "smart" then
             log("No missing drivers found. Exiting.")
-            return
+            return { ok = true, task = 'install_drivers', changed = false, installed_count = 0, reboot_needed = false }
         end
     end
 
     -- 2. 扫描 INF 文件
     if not win.fs.exists(drv_path) then
         log("Error: Driver path not found: %s", drv_path)
-        return
+        return nil, { task = 'install_drivers', code = 'driver_source_missing', message = 'Driver path not found', path = drv_path }
     end
     
     log("Scanning INF files in: %s", drv_path)
@@ -143,22 +153,48 @@ local function smart_install(drv_path, mode)
     if reboot_needed then
         log("NOTE: A system reboot is required to complete driver installation.")
     end
+
+    return {
+        ok = true,
+        task = 'install_drivers',
+        changed = installed_count > 0,
+        installed_count = installed_count,
+        reboot_needed = reboot_needed,
+    }
 end
 
--- -----------------------------------------------------------------------------
--- 入口点
--- -----------------------------------------------------------------------------
-
--- 检查管理员权限
-if not win.process.token.is_elevated() then
-    print("Error: Administrator privileges are required for driver installation.")
-    return
+function M.plan(opts)
+    opts = opts or {}
+    local root = opts.root or opts.driver_root or (opts.roots and opts.roots[1]) or [[X:\Drivers]]
+    return {
+        ok = true,
+        task = 'install_drivers',
+        dry_run = true,
+        changed = false,
+        steps = {
+            { action = 'scan_devices', mode = opts.mode or 'smart' },
+            { action = 'scan_inf_files', root = root },
+            { action = 'install_matching_drivers', root = root },
+        },
+        warnings = {},
+    }
 end
 
--- 配置：设定驱动搜索路径
--- 在 PE 环境下，这通常是外置程序的 Drivers 目录
-local DRIVER_ROOT = [[X:\Drivers]] 
+function M.install(opts)
+    opts = opts or {}
 
--- 执行智能安装
--- 也可以根据命令行参数动态决定路径和模式
-smart_install(DRIVER_ROOT, "smart")
+    if opts.dry_run then
+        return M.plan(opts)
+    end
+
+    if not win.process.token.is_elevated() then
+        return nil, { task = 'install_drivers', code = 'not_elevated', message = 'Administrator privileges are required for driver installation' }
+    end
+
+    local root = opts.root or opts.driver_root or (opts.roots and opts.roots[1]) or [[X:\Drivers]]
+    return smart_install(root, opts.mode or 'smart', opts)
+end
+
+M.smart_install = smart_install
+
+return M
