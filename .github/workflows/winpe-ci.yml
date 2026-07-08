@@ -48,6 +48,18 @@ jobs:
           fi
 
       # ==================================================================
+      # Cache: WinPE base asset + wimboot (avoid re-downloading 446MB)
+      # ==================================================================
+      - name: Cache WinPE base and wimboot
+        id: cache-winpe
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/winpe_base
+            /tmp/winpe_http/wimboot
+          key: winpe-base-${{ env.WINPE_BASE_SHA256 }}
+
+      # ==================================================================
       # Cache: peshell build (cross-compiled on Windows runner)
       # We need peshell.exe built with MSVC. For simplicity, use the
       # peshell_minimal Windows CI artifact.
@@ -82,6 +94,7 @@ jobs:
           cp bin/peshell.exe /tmp/peshell_build/bin/ 2>/dev/null || true
 
       - name: Download WinPE base asset
+        if: steps.cache-winpe.outputs.cache-hit != 'true'
         run: |
           mkdir -p /tmp/winpe_base
           gh release download winpe-base \
@@ -89,11 +102,15 @@ jobs:
             --pattern "${WINPE_BASE_ASSET}" \
             --dir /tmp/winpe_base \
             --clobber
-          echo "${WINPE_BASE_SHA256}  /tmp/winpe_base/${WINPE_BASE_ASSET}" | sha256sum -c -
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify WinPE base asset
+        run: |
+          echo "${WINPE_BASE_SHA256}  /tmp/winpe_base/${WINPE_BASE_ASSET}" | sha256sum -c -
+
       - name: Download wimboot
+        if: steps.cache-winpe.outputs.cache-hit != 'true'
         run: |
           mkdir -p /tmp/winpe_http
           curl -fL --retry 5 --retry-delay 3 \
