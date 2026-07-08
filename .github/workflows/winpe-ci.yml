@@ -163,9 +163,8 @@ jobs:
             -M pc \
             $ACCEL_ARG \
             -cpu max \
-            -m 1024 \
-            -display none \
-            -vga std \
+            -m 2048 \
+            -nographic \
             -no-reboot \
             -netdev user,id=n0,tftp=/tmp/winpe_http,bootfile=boot.ipxe \
             -device e1000,netdev=n0 \
