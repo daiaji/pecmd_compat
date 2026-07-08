@@ -392,8 +392,22 @@ Current local validation:
 
 Still pending:
 
-- Expand `peshell_minimal` profile runner UI/progress/cancel adapters beyond the first dry-run dispatcher.
-- Add or wire CI for `win-kit` offline checks.
-- Run Windows CI for `win-utils` and task wrappers.
+- ~~Expand `peshell_minimal` profile runner UI/progress/cancel adapters beyond the first dry-run dispatcher.~~ **Done 2026-07-08:** `runner.lua` now supports `on_progress(name, i, total)`, `cancelled` (token or function), `on_confirm(name, plan)`, `on_task_complete(name, result, err)`.
+- ~~Add or wire CI for `win-kit` offline checks.~~ **Done 2026-07-08:** `pecmd_compat/.github/workflows/ci.yml` runs `win-kit/tests/run_offline.lua` + `tasks_spec.lua`.
+- Run Windows CI for `win-utils` and task wrappers. **Partial:** `win-utils` Windows CI green (56 tests). `win-kit` task wrappers have no Windows CI (peshell smoke uses stubs).
 - Run Admin Windows and WinPE validation for destructive or hardware-specific behavior.
 - Decide whether `win-kit` becomes a standalone repository or remains a service under `pecmd_compat`.
+
+### Updates - 2026-07-08
+
+- Added `win-kit/tasks/setup_network.lua` (adapter enable/disable, DHCP/static IP, DNS, NTP sync).
+- Added `win-kit/tasks/boot_repair.lua` (BCD device/osdevice, bootsect, timeout, default entry, offline hive repair).
+- All 8 planned task modules now exist and are registered in `tasks/init.lua`.
+- Added `win-kit/tests/tasks_spec.lua` — asserts canonical result schema (`ok`, `task`, `dry_run`, `changed`, `steps`, `warnings`) and `run(dry_run=true) == plan()` for all 8 tasks. 18 assertions, all passing.
+- `run_offline.lua` updated to 22 modules (added `setup_network`, `boot_repair`).
+- `peshell_minimal/scripts/lib/tasks/runner.lua` upgraded with progress/cancel/confirmation adapters.
+- `peshell_minimal/scripts/test_profile_runner.lua` expanded to 6 tests covering progress, cancel, confirm-skip, task-complete.
+- `peshell_minimal/scripts/profiles/default.lua` updated with `setup_network` in order (disabled by default).
+- `win-utils` CI: all green (56 tests, 0 failures, 2 CI-environment WARNs).
+- `peshell_minimal` CI: all green (Windows build + smoke + Ubuntu Lua smoke).
+- `.luarc.json` added at workspace root for LuaJIT LSP support.
