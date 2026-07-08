@@ -36,6 +36,8 @@ local modules = {
     'win-kit.tasks.setup_display',
     'win-kit.tasks.shutdown_cleanup',
     'win-kit.tasks.init_pe',
+    'win-kit.tasks.setup_network',
+    'win-kit.tasks.boot_repair',
     'win-kit.env_manager',
     'win-kit.oem',
     'win-kit.icon_refresh',
@@ -78,6 +80,8 @@ assert(tasks.setup_pagefile.plan({ size_mb = 2048 }).steps[3].action == 'create_
 assert(tasks.setup_display.plan({}).steps[2].action == 'select_best_display_mode')
 assert(tasks.shutdown_cleanup.plan({}).steps[1].action == 'clean_standard_temp_dirs')
 assert(tasks.init_pe.plan({}).steps[1].action == 'refresh_icon_cache')
+assert(tasks.setup_network.plan({ enable_adapter = 'Ethernet', dhcp = true }).steps[1].action == 'enable_adapter')
+assert(tasks.boot_repair.plan({ rebuild_bcd = 'C:' }).steps[1].action == 'rebuild_bcd')
 
 local env_manager = require 'win-kit.env_manager'
 local ok_path, path_plan = env_manager.append_path([[X:\Tools]], 'System', { dry_run = true })

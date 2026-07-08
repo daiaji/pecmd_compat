@@ -5,8 +5,10 @@ local modules = {
     assign_drive_letters = 'win-kit.tasks.assign_drive_letters',
     setup_pagefile = 'win-kit.tasks.setup_pagefile',
     setup_display = 'win-kit.tasks.setup_display',
+    setup_network = 'win-kit.tasks.setup_network',
     shutdown_cleanup = 'win-kit.tasks.shutdown_cleanup',
     init_pe = 'win-kit.tasks.init_pe',
+    boot_repair = 'win-kit.tasks.boot_repair',
 }
 
 setmetatable(M, {
