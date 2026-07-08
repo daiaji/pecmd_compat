@@ -33,7 +33,7 @@ echo "[INFO] UUP build: $UUP_BUILD ($UUP_ARCH, $UUP_LANG, $UUP_EDITION)"
 echo "[INFO] UUP cache: $UUP_FILES_DIR"
 echo "[INFO] Converter: $CONVERTER_DIR"
 
-mkdir -p "$UUP_FILES_DIR"
+mkdir -p "$UUP_FILES_DIR" "$WORK_DIR"
 
 # ============================================================================
 # Step 1: Verify converter scripts
