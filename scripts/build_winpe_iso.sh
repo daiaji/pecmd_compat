@@ -201,6 +201,7 @@ sudo mount -o loop,ro "$BASE_ISO" "$ISO_MOUNT" 2>/dev/null || {
 BOOT_WIM="$WORK_DIR/boot.wim"
 if [ -f "$ISO_MOUNT/sources/boot.wim" ]; then
     cp "$ISO_MOUNT/sources/boot.wim" "$BOOT_WIM"
+    chmod u+w "$BOOT_WIM"
 else
     echo "[ERROR] boot.wim not found in ISO"
     ls -la "$ISO_MOUNT/sources/" 2>/dev/null || ls -la "$ISO_MOUNT/" 2>/dev/null
