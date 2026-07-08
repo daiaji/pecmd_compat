@@ -110,7 +110,16 @@ while IFS=$'\t' read -r url name sha1 size; do
     fi
     size_mb=$((size / 1048576))
     echo "  Downloading: $name (~${size_mb}MB)"
-    curl -sL --retry 3 -o "$dest" "$url"
+    curl -sL --retry 5 --retry-delay 3 --retry-connrefused \
+         --connect-timeout 30 --max-time 600 \
+         -o "$dest" "$url" || {
+        echo "  [WARN] Download failed for $name, will retry once..."
+        sleep 5
+        curl -sL --retry 3 --connect-timeout 30 --max-time 600 -o "$dest" "$url" || {
+            echo "  [ERROR] Failed to download $name"
+            exit 1
+        }
+    }
     downloaded=$((downloaded + 1))
 done < "$WORK_DIR/download_list.txt"
 

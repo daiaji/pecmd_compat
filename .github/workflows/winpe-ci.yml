@@ -58,6 +58,8 @@ jobs:
         with:
           path: /tmp/uup_files
           key: uup-${{ env.UUP_BUILD }}-${{ env.UUP_ARCH }}-${{ env.UUP_LANG }}
+          restore-keys: |
+            uup-${{ env.UUP_BUILD }}-${{ env.UUP_ARCH }}-
 
       # ==================================================================
       # Cache: peshell build (cross-compiled on Windows runner)
