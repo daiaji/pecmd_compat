@@ -131,7 +131,6 @@ echo "[INFO] Downloaded: $downloaded, Skipped (cached): $skipped"
 echo "[5/8] Running UUP converter to build base ISO..."
 
 BASE_ISO="$WORK_DIR/winpe_base.iso"
-cd "$UUP_FILES_DIR"
 
 # Create a minimal convert config for non-interactive mode
 cat > "$CONVERTER_DIR/convert_config_linux" <<'CFG'
@@ -153,8 +152,8 @@ SKIP_EDGE=1
 AUTO_EXIT=1
 CFG
 
-# Run the converter (it reads convert_config_linux from its own directory)
-"$CONVERTER_DIR/convert.sh" 2>&1 | tee "$WORK_DIR/converter.log" || {
+# Run the converter (args: compression, uup_directory, virtual_editions)
+"$CONVERTER_DIR/convert.sh" wim "$UUP_FILES_DIR" 0 2>&1 | tee "$WORK_DIR/converter.log" || {
     echo "[ERROR] UUP converter failed"
     tail -30 "$WORK_DIR/converter.log"
     exit 1
@@ -168,8 +167,6 @@ if [ -z "$BASE_ISO" ] || [ ! -f "$BASE_ISO" ]; then
     exit 1
 fi
 echo "[INFO] Base ISO: $BASE_ISO ($(du -h "$BASE_ISO" | cut -f1))"
-
-cd - > /dev/null
 
 # ============================================================================
 # Step 6: Extract boot.wim from base ISO, inject peshell assets
