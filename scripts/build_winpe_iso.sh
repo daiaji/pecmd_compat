@@ -23,32 +23,28 @@ UUP_EDITION="${UUP_EDITION:-PROFESSIONAL}"
 
 # UUP files cache (persisted across CI runs via actions/cache)
 UUP_FILES_DIR="${UUP_FILES_DIR:-/tmp/uup_files}"
-# Converter script cache
-CONVERTER_DIR="${CONVERTER_DIR:-$WORK_DIR/converter}"
+# Converter scripts (vendored in repo, no external download needed)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+CONVERTER_DIR="${CONVERTER_DIR:-$REPO_ROOT/scripts/uup-converter}"
 
 echo "[INFO] Work dir: $WORK_DIR"
 echo "[INFO] UUP build: $UUP_BUILD ($UUP_ARCH, $UUP_LANG, $UUP_EDITION)"
 echo "[INFO] UUP cache: $UUP_FILES_DIR"
+echo "[INFO] Converter: $CONVERTER_DIR"
 
-mkdir -p "$UUP_FILES_DIR" "$CONVERTER_DIR"
+mkdir -p "$UUP_FILES_DIR"
 
 # ============================================================================
-# Step 1: Download UUP converter scripts
+# Step 1: Verify converter scripts
 # ============================================================================
-echo "[1/8] Downloading UUP converter scripts..."
+echo "[1/8] Verifying UUP converter scripts..."
 
-CONVERTER_BASE="https://git.uupdump.net/uup-dump/converter/raw/branch/master"
-for f in convert.sh convert_config_linux convert_ve_plugin; do
-    if [ ! -f "$CONVERTER_DIR/$f" ]; then
-        curl -sL "$CONVERTER_BASE/$f" -o "$CONVERTER_DIR/$f" 2>/dev/null || true
-    fi
-done
-chmod +x "$CONVERTER_DIR/convert.sh" 2>/dev/null || true
-
-if [ ! -s "$CONVERTER_DIR/convert.sh" ]; then
-    echo "[ERROR] Failed to download UUP converter"
+if [ ! -f "$CONVERTER_DIR/convert.sh" ]; then
+    echo "[ERROR] UUP converter not found at $CONVERTER_DIR/convert.sh"
     exit 1
 fi
+chmod +x "$CONVERTER_DIR/convert.sh" 2>/dev/null || true
 echo "[INFO] Converter ready: $(wc -l < "$CONVERTER_DIR/convert.sh") lines"
 
 # ============================================================================
@@ -148,7 +144,7 @@ SKIP_EDGE=1
 AUTO_EXIT=1
 CFG
 
-# Run the converter
+# Run the converter (it reads convert_config_linux from its own directory)
 "$CONVERTER_DIR/convert.sh" 2>&1 | tee "$WORK_DIR/converter.log" || {
     echo "[ERROR] UUP converter failed"
     tail -30 "$WORK_DIR/converter.log"
