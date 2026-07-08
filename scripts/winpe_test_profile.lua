@@ -14,6 +14,23 @@ local system32 = os.getenv("SYSTEMROOT") or "X:\\Windows"
 local lua_dir = system32 .. "\\System32\\lua"
 package.path = lua_dir .. "\\?.lua;" .. lua_dir .. "\\?\\init.lua;;"
 
+local raw_print = print
+local serial = io.open("COM1", "w")
+local function emit(...)
+    local parts = {}
+    for i = 1, select("#", ...) do
+        parts[#parts + 1] = tostring(select(i, ...))
+    end
+    local line = table.concat(parts, "\t")
+    raw_print(line)
+    if serial then
+        serial:write(line, "\r\n")
+        serial:flush()
+    end
+end
+
+print = emit
+
 local log = _G.log or {
     info = function(...) print(...) end,
     warn = function(...) print("[WARN]", ...) end,
