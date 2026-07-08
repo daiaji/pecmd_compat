@@ -19,7 +19,7 @@ on:
 env:
   WINPE_BASE_ASSET: "winpe-base-19044-amd64-zh-cn.zip"
   WINPE_BASE_SHA256: "85e8c1730e0713c49bdb23140a6eb648123432ac7f8f0a72ec6f24867c5226a3"
-  QEMU_TIMEOUT: 300
+  QEMU_TIMEOUT: 180
 
 jobs:
   winpe-e2e:
