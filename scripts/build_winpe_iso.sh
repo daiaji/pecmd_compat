@@ -110,16 +110,23 @@ while IFS=$'\t' read -r url name sha1 size; do
     fi
     size_mb=$((size / 1048576))
     echo "  Downloading: $name (~${size_mb}MB)"
-    curl -sL --retry 5 --retry-delay 3 --retry-connrefused \
-         --connect-timeout 30 --max-time 600 \
-         -o "$dest" "$url" || {
-        echo "  [WARN] Download failed for $name, will retry once..."
+    for attempt in 1 2 3 4 5; do
+        aria2c --continue=true --max-tries=5 --retry-wait=5 \
+            --console-log-level=warn --summary-interval=0 \
+            --connect-timeout=30 --timeout=120 \
+            --split=4 --max-connection-per-server=4 \
+            --dir="$UUP_FILES_DIR" --out="$name" "$url" && \
+            [ "$(sha1sum "$dest" | awk '{print $1}')" = "$sha1" ] && break
+
+        echo "  [WARN] Download or SHA1 check failed for $name (attempt $attempt/5)"
+        rm -f "$dest" "$dest.aria2"
         sleep 5
-        curl -sL --retry 3 --connect-timeout 30 --max-time 600 -o "$dest" "$url" || {
-            echo "  [ERROR] Failed to download $name"
-            exit 1
-        }
-    }
+    done
+
+    if [ ! -f "$dest" ] || [ "$(sha1sum "$dest" | awk '{print $1}')" != "$sha1" ]; then
+        echo "  [ERROR] Failed to download verified file: $name"
+        exit 1
+    fi
     downloaded=$((downloaded + 1))
 done < "$WORK_DIR/download_list.txt"
 
