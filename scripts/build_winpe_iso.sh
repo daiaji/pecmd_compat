@@ -225,12 +225,35 @@ wimlib-imagex mountrw "$BOOT_WIM" "$WIM_INDEX" "$MOUNT_DIR" 2>/dev/null || {
 PE_SYSTEM32="$MOUNT_DIR/Windows/System32"
 mkdir -p "$PE_SYSTEM32"
 
-# winpeshl.ini: replace default shell with peshell
-# When peshell exits, WinPE reboots → QEMU -no-reboot shuts down
+# winpeshl.ini: replace default shell with a small cmd wrapper.  The wrapper
+# emits early COM1 markers before peshell starts, which makes boot failures
+# distinguishable from Lua/profile failures in CI.
 cat > "$PE_SYSTEM32/winpeshl.ini" <<'INI'
 [LaunchApps]
-%SYSTEMROOT%\System32\peshell.exe, "run %SYSTEMROOT%\System32\winpe_test_profile.lua"
+%SYSTEMROOT%\System32\cmd.exe, "/c %SYSTEMROOT%\System32\winpeshl.cmd"
 INI
+
+cat > "$PE_SYSTEM32/winpeshl.cmd" <<'CMD'
+@echo off
+echo WINPE_CI_WINPESHL_CMD_START > COM1
+echo WINPE_CI_WINPESHL_CMD_SYSTEMROOT=%SYSTEMROOT% > COM1
+if exist %SYSTEMROOT%\System32\peshell.exe (
+  echo WINPE_CI_WINPESHL_CMD_PESHELL_FOUND > COM1
+) else (
+  echo WINPE_CI_WINPESHL_CMD_PESHELL_MISSING > COM1
+)
+%SYSTEMROOT%\System32\peshell.exe run %SYSTEMROOT%\System32\winpe_test_profile.lua >> COM1 2>&1
+set PESHELL_EXIT=%ERRORLEVEL%
+echo WINPE_CI_WINPESHL_CMD_EXIT=%PESHELL_EXIT% > COM1
+wpeutil reboot
+CMD
+
+cat > "$PE_SYSTEM32/startnet.cmd" <<'CMD'
+@echo off
+echo WINPE_CI_STARTNET_CMD_START > COM1
+wpeinit
+echo WINPE_CI_STARTNET_CMD_AFTER_WPEINIT > COM1
+CMD
 
 # Copy peshell.exe and lua51.dll
 for f in peshell.exe lua51.dll; do

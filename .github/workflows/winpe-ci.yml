@@ -127,6 +127,11 @@ jobs:
           fi
 
           echo "[INFO] Starting QEMU with WinPE ISO..."
+          : > /tmp/winpe_serial.log
+          : > /tmp/qemu_stdout.log
+          tail -n +1 -F /tmp/winpe_serial.log /tmp/qemu_stdout.log &
+          TAIL_PID=$!
+
           set +e
           timeout ${{ env.QEMU_TIMEOUT }} qemu-system-x86_64 \
             -M pc \
@@ -142,11 +147,20 @@ jobs:
             -monitor none \
             2>&1 | tee /tmp/qemu_stdout.log
           status=${PIPESTATUS[0]}
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$TAIL_PID" 2>/dev/null || true
           set -e
+
+          echo "[INFO] Serial log bytes: $(wc -c < /tmp/winpe_serial.log 2>/dev/null || echo 0)"
+          echo "[INFO] QEMU stdout bytes: $(wc -c < /tmp/qemu_stdout.log 2>/dev/null || echo 0)"
 
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
             echo "[ERROR] QEMU failed with exit code $status"
             exit "$status"
+          fi
+
+          if [ "$status" -eq 124 ]; then
+            echo "[WARN] QEMU hit timeout after ${{ env.QEMU_TIMEOUT }} seconds"
           fi
 
           echo "[INFO] QEMU exited with code $status"
@@ -171,6 +185,8 @@ jobs:
             echo "passed=0" >> $GITHUB_OUTPUT
             echo "failed=1" >> $GITHUB_OUTPUT
             echo "[ERROR] No test results found in serial log"
+            echo "[INFO] Boot diagnostics:"
+            grep -E "CDBOOT|BOOTMGR|Booting|WINPE_CI_|SeaBIOS|iPXE" /tmp/winpe_serial.log 2>/dev/null || true
             exit 1
           fi
 
@@ -197,6 +213,8 @@ jobs:
           path: |
             /tmp/winpe_serial.log
             /tmp/qemu_stdout.log
+            /tmp/winpe_build/converter.log
+            /tmp/winpe_build/download_list.txt
 
       - name: Summary
         if: always()
