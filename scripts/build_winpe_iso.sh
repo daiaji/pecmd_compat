@@ -216,9 +216,9 @@ mkdir -p "$MOUNT_DIR"
 
 # Determine WIM index (WinPE is usually index 1)
 WIM_INDEX=1
-wimlib-imagex mount "$BOOT_WIM" "$WIM_INDEX" "$MOUNT_DIR" --no-acls 2>/dev/null || {
+wimlib-imagex mountrw "$BOOT_WIM" "$WIM_INDEX" "$MOUNT_DIR" 2>/dev/null || {
     WIM_INDEX=2
-    wimlib-imagex mount "$BOOT_WIM" "$WIM_INDEX" "$MOUNT_DIR" --no-acls
+    wimlib-imagex mountrw "$BOOT_WIM" "$WIM_INDEX" "$MOUNT_DIR"
 }
 
 PE_SYSTEM32="$MOUNT_DIR/Windows/System32"
