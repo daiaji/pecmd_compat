@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 wimtools xorriso jq python3
+          sudo apt-get install -y qemu-system-x86 wimtools xorriso genisoimage jq python3 cabextract chntpw aria2
 
       - name: Check KVM availability
         run: |
