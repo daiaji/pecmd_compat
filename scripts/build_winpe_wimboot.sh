@@ -137,8 +137,8 @@ cp "$REPO_ROOT/scripts/winpe_test_profile.lua" "$PE_SYSTEM32/"
 echo "  [OK] winpe_test_profile.lua"
 
 cp "$REPO_ROOT/scripts/winpe_test_profile.lua" "$SYNC_SYSTEM32/"
-echo "[INFO] Copying injected files into mounted WIM..."
-cp -a "$SYNC_ROOT"/. "$MOUNT_DIR"/
+echo "[INFO] Syncing injected files into mounted WIM..."
+rsync -rvP "$SYNC_ROOT"/ "$MOUNT_DIR"/
 
 echo "[4/5] Committing boot.wim changes..."
 wimlib-imagex unmount "$MOUNT_DIR" --commit
