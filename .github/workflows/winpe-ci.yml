@@ -1,0 +1,205 @@
+name: WinPE CI
+
+on:
+  push:
+    branches: ["master", "main"]
+    paths:
+      - 'win-kit/**'
+      - 'win-utils/**'
+      - 'peshell_minimal/**'
+      - 'scripts/**'
+      - '.github/workflows/winpe-ci.yml'
+  pull_request:
+    branches: ["master", "main"]
+  workflow_dispatch:
+  schedule:
+    # Run weekly to keep cache fresh and catch upstream changes
+    - cron: '0 3 * * 1'
+
+env:
+  UUP_BUILD: "19044.7417"
+  UUP_ARCH: "amd64"
+  UUP_LANG: "en-us"
+  UUP_EDITION: "PROFESSIONAL"
+  QEMU_TIMEOUT: 300
+
+jobs:
+  winpe-e2e:
+    name: WinPE QEMU E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 wimtools xorriso jq python3
+
+      - name: Check KVM availability
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo "KVM available: $(ls -la /dev/kvm)"
+            echo "HAS_KVM=true" >> $GITHUB_ENV
+          else
+            echo "KVM not available, using TCG (slower)"
+            echo "HAS_KVM=false" >> $GITHUB_ENV
+          fi
+
+      # ==================================================================
+      # Cache: UUP files (the big download ~2-3GB)
+      # ==================================================================
+      - name: Cache UUP files
+        id: cache-uup
+        uses: actions/cache@v4
+        with:
+          path: /tmp/uup_files
+          key: uup-${{ env.UUP_BUILD }}-${{ env.UUP_ARCH }}-${{ env.UUP_LANG }}
+
+      # ==================================================================
+      # Cache: peshell build (cross-compiled on Windows runner)
+      # We need peshell.exe built with MSVC. For simplicity, use the
+      # peshell_minimal Windows CI artifact.
+      # ==================================================================
+      - name: Download peshell build artifact
+        id: download-artifact
+        run: |
+          # Download the latest successful peshell release artifact
+          gh run download \
+            --repo daiaji/peshell_minimal \
+            $(gh run list --repo daiaji/peshell_minimal --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId') \
+            --name peshell-release \
+            --dir /tmp/peshell_build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: "Fallback: Build peshell with MinGW"
+        if: "${{ steps.download-artifact.outcome != 'success' }}"
+        run: |
+          echo "[WARN] Could not download peshell artifact. Building with MinGW..."
+          sudo apt-get install -y mingw-w64 cmake
+          cd peshell_minimal
+          mkdir -p build && cd build
+          cmake -S .. -B . -G "Unix Makefiles" \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+          mkdir -p /tmp/peshell_build/bin
+          cp bin/peshell.exe /tmp/peshell_build/bin/ 2>/dev/null || true
+
+      # ==================================================================
+      # Build WinPE ISO with injected assets
+      # ==================================================================
+      - name: Build WinPE ISO
+        run: |
+          chmod +x scripts/build_winpe_iso.sh
+          WORK_DIR=/tmp/winpe_build \
+          bash scripts/build_winpe_iso.sh \
+            /tmp/winpe_test.iso \
+            /tmp/peshell_build \
+            win-kit \
+            win-utils
+        env:
+          UUP_BUILD: ${{ env.UUP_BUILD }}
+          UUP_ARCH: ${{ env.UUP_ARCH }}
+          UUP_LANG: ${{ env.UUP_LANG }}
+          UUP_EDITION: ${{ env.UUP_EDITION }}
+          WORK_DIR: /tmp/winpe_build
+
+      # ==================================================================
+      # Boot WinPE in QEMU and capture serial output
+      # ==================================================================
+      - name: Boot WinPE in QEMU
+        run: |
+          ACCEL_ARG=""
+          if [ "$HAS_KVM" = "true" ]; then
+            ACCEL_ARG="-accel kvm"
+          else
+            ACCEL_ARG="-accel tcg"
+          fi
+
+          echo "[INFO] Starting QEMU with WinPE ISO..."
+          timeout ${{ env.QEMU_TIMEOUT }} qemu-system-x86_64 \
+            -M pc \
+            $ACCEL_ARG \
+            -cpu max \
+            -m 1024 \
+            -vga none \
+            -nographic \
+            -no-reboot \
+            -cdrom /tmp/winpe_test.iso \
+            -boot d \
+            -serial file:/tmp/winpe_serial.log \
+            -monitor none \
+            2>&1 | tee /tmp/qemu_stdout.log || true
+
+          echo "[INFO] QEMU exited"
+
+      # ==================================================================
+      # Parse test results from serial log
+      # ==================================================================
+      - name: Parse test results
+        id: parse
+        run: |
+          echo "[INFO] Serial log contents:"
+          cat /tmp/winpe_serial.log 2>/dev/null || echo "(empty)"
+
+          # Extract summary line
+          SUMMARY=$(grep "WINPE_CI_SUMMARY:" /tmp/winpe_serial.log 2>/dev/null | tail -1 || true)
+          EXIT_LINE=$(grep "WINPE_CI_EXIT:" /tmp/winpe_serial.log 2>/dev/null | tail -1 || true)
+
+          echo "summary=$SUMMARY"
+          echo "exit=$EXIT_LINE"
+
+          if [ -z "$SUMMARY" ]; then
+            echo "passed=0" >> $GITHUB_OUTPUT
+            echo "failed=1" >> $GITHUB_OUTPUT
+            echo "[ERROR] No test results found in serial log"
+            exit 1
+          fi
+
+          # Parse: WINPE_CI_SUMMARY: <pass> <fail> <skip>
+          PASS=$(echo "$SUMMARY" | awk '{print $2}')
+          FAIL=$(echo "$SUMMARY" | awk '{print $3}')
+          SKIP=$(echo "$SUMMARY" | awk '{print $4}')
+
+          echo "passed=$PASS" >> $GITHUB_OUTPUT
+          echo "failed=$FAIL" >> $GITHUB_OUTPUT
+          echo "skipped=$SKIP" >> $GITHUB_OUTPUT
+
+          EXIT_CODE=$(echo "$EXIT_LINE" | awk '{print $2}')
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "[ERROR] WinPE CI failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winpe-serial-log
+          path: |
+            /tmp/winpe_serial.log
+            /tmp/qemu_stdout.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## WinPE CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.parse.outputs.passed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.parse.outputs.failed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped | ${{ steps.parse.outputs.skipped }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Serial Log Excerpt" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -50 /tmp/winpe_serial.log 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "(no log)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
