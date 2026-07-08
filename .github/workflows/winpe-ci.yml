@@ -21,6 +21,8 @@ env:
   UUP_ARCH: "amd64"
   UUP_LANG: "en-us"
   UUP_EDITION: "PROFESSIONAL"
+  WINPE_BASE_ASSET: "winpe-base-19044-amd64-zh-cn.zip"
+  WINPE_BASE_SHA256: "85e8c1730e0713c49bdb23140a6eb648123432ac7f8f0a72ec6f24867c5226a3"
   QEMU_TIMEOUT: 300
 
 jobs:
@@ -37,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 wimtools xorriso genisoimage jq python3 cabextract chntpw aria2
+          sudo apt-get install -y qemu-system-x86 wimtools xorriso genisoimage jq python3 cabextract chntpw aria2 unzip rsync curl
 
       - name: Check KVM availability
         run: |
@@ -95,15 +97,36 @@ jobs:
           mkdir -p /tmp/peshell_build/bin
           cp bin/peshell.exe /tmp/peshell_build/bin/ 2>/dev/null || true
 
-      # ==================================================================
-      # Build WinPE ISO with injected assets
-      # ==================================================================
-      - name: Build WinPE ISO
+      - name: Download WinPE base asset
         run: |
-          chmod +x scripts/build_winpe_iso.sh
+          mkdir -p /tmp/winpe_base
+          gh release download winpe-base \
+            --repo daiaji/pecmd_compat \
+            --pattern "${WINPE_BASE_ASSET}" \
+            --dir /tmp/winpe_base \
+            --clobber
+          echo "${WINPE_BASE_SHA256}  /tmp/winpe_base/${WINPE_BASE_ASSET}" | sha256sum -c -
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download wimboot
+        run: |
+          mkdir -p /tmp/winpe_http
+          curl -fL --retry 5 --retry-delay 3 \
+            -o /tmp/winpe_http/wimboot \
+            https://github.com/ipxe/wimboot/releases/latest/download/wimboot
+          chmod +x /tmp/winpe_http/wimboot
+
+      # ==================================================================
+      # Build WinPE wimboot tree with injected assets
+      # ==================================================================
+      - name: Build WinPE wimboot tree
+        run: |
+          chmod +x scripts/build_winpe_wimboot.sh
           WORK_DIR=/tmp/winpe_build \
-          bash scripts/build_winpe_iso.sh \
-            /tmp/winpe_test.iso \
+          bash scripts/build_winpe_wimboot.sh \
+            /tmp/winpe_base/${WINPE_BASE_ASSET} \
+            /tmp/winpe_http \
             /tmp/peshell_build \
             win-kit \
             win-utils
@@ -115,7 +138,7 @@ jobs:
           WORK_DIR: /tmp/winpe_build
 
       # ==================================================================
-      # Boot WinPE in QEMU and capture serial output
+      # Boot WinPE in QEMU via iPXE+wimboot and capture serial output
       # ==================================================================
       - name: Boot WinPE in QEMU
         run: |
@@ -126,9 +149,11 @@ jobs:
             ACCEL_ARG="-accel tcg"
           fi
 
-          echo "[INFO] Starting QEMU with WinPE ISO..."
+          echo "[INFO] Starting QEMU with iPXE+wimboot..."
           : > /tmp/winpe_serial.log
           : > /tmp/qemu_stdout.log
+          (cd /tmp/winpe_http && python3 -m http.server 8080 --bind 0.0.0.0) > /tmp/winpe_http.log 2>&1 &
+          HTTP_PID=$!
           tail -n +1 -F /tmp/winpe_serial.log /tmp/qemu_stdout.log &
           TAIL_PID=$!
 
@@ -141,18 +166,23 @@ jobs:
             -display none \
             -vga std \
             -no-reboot \
-            -cdrom /tmp/winpe_test.iso \
-            -boot d \
+            -netdev user,id=n0,tftp=/tmp/winpe_http,bootfile=boot.ipxe \
+            -device e1000,netdev=n0 \
+            -boot n \
             -serial file:/tmp/winpe_serial.log \
             -monitor none \
             2>&1 | tee /tmp/qemu_stdout.log
           status=${PIPESTATUS[0]}
           kill "$TAIL_PID" 2>/dev/null || true
           wait "$TAIL_PID" 2>/dev/null || true
+          kill "$HTTP_PID" 2>/dev/null || true
+          wait "$HTTP_PID" 2>/dev/null || true
           set -e
 
           echo "[INFO] Serial log bytes: $(wc -c < /tmp/winpe_serial.log 2>/dev/null || echo 0)"
           echo "[INFO] QEMU stdout bytes: $(wc -c < /tmp/qemu_stdout.log 2>/dev/null || echo 0)"
+          echo "[INFO] HTTP log:"
+          cat /tmp/winpe_http.log 2>/dev/null || true
 
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
             echo "[ERROR] QEMU failed with exit code $status"
@@ -213,8 +243,10 @@ jobs:
           path: |
             /tmp/winpe_serial.log
             /tmp/qemu_stdout.log
-            /tmp/winpe_build/converter.log
-            /tmp/winpe_build/download_list.txt
+            /tmp/winpe_http.log
+            /tmp/winpe_http/boot.ipxe
+            /tmp/winpe_http/wimboot.index
+            /tmp/winpe_http/wiminfo.txt
 
       - name: Summary
         if: always()
