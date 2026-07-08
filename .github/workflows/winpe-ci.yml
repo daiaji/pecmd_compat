@@ -41,11 +41,11 @@ jobs:
 
       - name: Check KVM availability
         run: |
-          if [ -e /dev/kvm ]; then
-            echo "KVM available: $(ls -la /dev/kvm)"
+          if [ -e /dev/kvm ] && qemu-system-x86_64 -accel kvm -machine none -display none -nodefaults -S -monitor none -serial none -no-reboot -no-shutdown </dev/null >/dev/null 2>&1; then
+            echo "KVM usable: $(ls -la /dev/kvm)"
             echo "HAS_KVM=true" >> $GITHUB_ENV
           else
-            echo "KVM not available, using TCG (slower)"
+            echo "KVM not usable, using TCG (slower)"
             echo "HAS_KVM=false" >> $GITHUB_ENV
           fi
 
@@ -127,6 +127,7 @@ jobs:
           fi
 
           echo "[INFO] Starting QEMU with WinPE ISO..."
+          set +e
           timeout ${{ env.QEMU_TIMEOUT }} qemu-system-x86_64 \
             -M pc \
             $ACCEL_ARG \
@@ -139,9 +140,16 @@ jobs:
             -boot d \
             -serial file:/tmp/winpe_serial.log \
             -monitor none \
-            2>&1 | tee /tmp/qemu_stdout.log || true
+            2>&1 | tee /tmp/qemu_stdout.log
+          status=${PIPESTATUS[0]}
+          set -e
 
-          echo "[INFO] QEMU exited"
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "[ERROR] QEMU failed with exit code $status"
+            exit "$status"
+          fi
+
+          echo "[INFO] QEMU exited with code $status"
 
       # ==================================================================
       # Parse test results from serial log
