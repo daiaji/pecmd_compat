@@ -300,11 +300,11 @@ wimlib-imagex unmount "$MOUNT_DIR" --commit
 echo "[7/8] Rebuilding bootable ISO..."
 
 ISO_DIR="$WORK_DIR/iso_out"
-mkdir -p "$ISO_DIR/sources" "$ISO_DIR/boot" "$ISO_DIR/efi/boot"
+mkdir -p "$ISO_DIR/sources" "$ISO_DIR/boot" "$ISO_DIR/efi/microsoft/boot"
 
 # Extract boot files from base ISO
 7z x "$BASE_ISO" -o"$ISO_DIR" -y \
-    bootmgr bootmgr.efi boot/etfsboot.com efi/boot/bootx64.efi 2>/dev/null || true
+    bootmgr bootmgr.efi boot/etfsboot.com efi/microsoft/boot/efisys*.bin 2>/dev/null || true
 
 # Also extract any other needed files from base ISO
 7z x "$BASE_ISO" -o"$ISO_DIR" -y -x!sources/boot.wim 2>/dev/null || true
@@ -312,34 +312,39 @@ mkdir -p "$ISO_DIR/sources" "$ISO_DIR/boot" "$ISO_DIR/efi/boot"
 # Replace boot.wim with our modified version
 cp "$BOOT_WIM" "$ISO_DIR/sources/boot.wim"
 
-# Build ISO with xorriso
+# Build ISO using the same boot layout as UUP converter.
 ETFSBOOT="$ISO_DIR/boot/etfsboot.com"
-EFIBOOT="$ISO_DIR/efi/boot/bootx64.efi"
+EFIBOOT="$ISO_DIR/efi/microsoft/boot/efisys_prompt.bin"
+if [ ! -f "$EFIBOOT" ]; then
+    EFIBOOT="$ISO_DIR/efi/microsoft/boot/efisys.bin"
+fi
+
+if [ ! -f "$ISO_DIR/bootmgr" ] && [ ! -f "$ISO_DIR/BOOTMGR" ]; then
+    echo "[ERROR] bootmgr not found in rebuilt ISO tree"
+    find "$ISO_DIR" -maxdepth 2 -type f | sort | head -50
+    exit 1
+fi
 
 if [ -f "$ETFSBOOT" ] && [ -f "$EFIBOOT" ]; then
     # Dual boot (BIOS + UEFI)
-    xorriso -as mkisofs \
-        -iso-level 3 -full-iso9660-filenames \
-        -eltorito-boot boot/etfsboot.com \
-        -no-emul-boot -boot-load-size 8 \
-        -eltorito-platform efi -eltorito-boot efi/boot/bootx64.efi \
-        -no-emul-boot -boot-load-size 8 \
+    genisoimage \
+        -b boot/etfsboot.com -no-emul-boot \
+        -eltorito-alt-boot -b "${EFIBOOT#"$ISO_DIR/"}" -no-emul-boot \
+        -udf -iso-level 3 \
         -o "$OUTPUT_ISO" \
         "$ISO_DIR"
 elif [ -f "$ETFSBOOT" ]; then
     # BIOS only
-    xorriso -as mkisofs \
-        -iso-level 3 -full-iso9660-filenames \
-        -eltorito-boot boot/etfsboot.com \
-        -no-emul-boot -boot-load-size 8 \
+    genisoimage \
+        -b boot/etfsboot.com -no-emul-boot \
+        -udf -iso-level 3 \
         -o "$OUTPUT_ISO" \
         "$ISO_DIR"
 elif [ -f "$EFIBOOT" ]; then
     # UEFI only
-    xorriso -as mkisofs \
-        -iso-level 3 -full-iso9660-filenames \
-        -eltorito-platform efi -eltorito-boot efi/boot/bootx64.efi \
-        -no-emul-boot -boot-load-size 8 \
+    genisoimage \
+        -b "${EFIBOOT#"$ISO_DIR/"}" -no-emul-boot \
+        -udf -iso-level 3 \
         -o "$OUTPUT_ISO" \
         "$ISO_DIR"
 else
