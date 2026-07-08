@@ -133,8 +133,8 @@ jobs:
             $ACCEL_ARG \
             -cpu max \
             -m 1024 \
-            -vga none \
-            -nographic \
+            -display none \
+            -vga std \
             -no-reboot \
             -cdrom /tmp/winpe_test.iso \
             -boot d \
