@@ -1,0 +1,6 @@
+[submodule "win-utils"]
+	path = win-utils
+	url = git@github.com:daiaji/win-utils.git
+[submodule "peshell_minimal"]
+	path = peshell_minimal
+	url = git@github.com:daiaji/peshell_minimal.git
