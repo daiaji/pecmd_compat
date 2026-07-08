@@ -21,7 +21,7 @@ env:
   UUP_ARCH: "amd64"
   UUP_LANG: "en-us"
   UUP_EDITION: "PROFESSIONAL"
-  QEMU_TIMEOUT: 900
+  QEMU_TIMEOUT: 300
 
 jobs:
   winpe-e2e:
