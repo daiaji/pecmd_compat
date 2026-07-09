@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "scripts/ci/debug-ci.sh *": "allow",
+      "gh run *": "allow",
+      "gh pr comment *": "ask"
+    }
+  }
+}

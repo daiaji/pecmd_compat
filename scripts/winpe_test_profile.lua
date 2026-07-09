@@ -1,8 +1,8 @@
 -- winpe_test_profile.lua
--- WinPE CI test profile: runs win-kit tasks in QEMU and outputs results via serial.
--- This profile is injected into boot.wim and executed by peshell via winpeshl.ini.
+-- WinPE CI test profile: runs win-kit tasks in QEMU and writes results to stdout.
+-- This profile is injected into boot.wim and executed by pe_ci_run.cmd.
 --
--- Output protocol (written to stdout, captured by QEMU serial):
+-- Output protocol (written to stdout, captured by pe_ci_run.cmd):
 --   WINPE_CI_START
 --   WINPE_CI_TASK: <name> ... PASS|FAIL|SKIP
 --   WINPE_CI_RESULT: <task> <status> <detail>
@@ -14,19 +14,14 @@ local system32 = os.getenv("SYSTEMROOT") or "X:\\Windows"
 local lua_dir = system32 .. "\\System32\\lua"
 package.path = lua_dir .. "\\?.lua;" .. lua_dir .. "\\?\\init.lua;;"
 
-local raw_print = print
-local serial = io.open("COM1", "w")
 local function emit(...)
     local parts = {}
     for i = 1, select("#", ...) do
         parts[#parts + 1] = tostring(select(i, ...))
     end
     local line = table.concat(parts, "\t")
-    raw_print(line)
-    if serial then
-        serial:write(line, "\r\n")
-        serial:flush()
-    end
+    io.write(line, "\n")
+    io.flush()
 end
 
 print = emit
@@ -41,7 +36,7 @@ local log = _G.log or {
 local runner = require("tasks.runner")
 
 -- Test profile: runs all tasks in dry_run mode first, then non-destructive tasks for real
-local test_profile = {
+local dry_run_profile = {
     name = "winpe-ci",
     dry_run = false,
     defaults = {},
@@ -56,11 +51,29 @@ local test_profile = {
             refresh_icons = false,
         },
         install_drivers = false,  -- No real drivers in QEMU
-        assign_drive_letters = {},  -- Safe: just assigns letters
+        assign_drive_letters = {},  -- API validation only in dry-run plan
         setup_pagefile = false,  -- Skip in QEMU (no persistent disk)
         setup_display = {},  -- Safe: queries display info
         setup_network = false,  -- Skip: QEMU network is limited
         shutdown_cleanup = false,  -- We handle shutdown via QEMU
+    },
+}
+
+local run_profile = {
+    name = dry_run_profile.name,
+    dry_run = false,
+    defaults = dry_run_profile.defaults,
+    order = dry_run_profile.order,
+    tasks = {
+        init_pe = {
+            refresh_icons = false,
+        },
+        install_drivers = false,
+        assign_drive_letters = false,  -- Avoid changing CI result drive letters
+        setup_pagefile = false,
+        setup_display = false,  -- Dry-run only; changing display mode can reset QEMU output
+        setup_network = false,
+        shutdown_cleanup = false,
     },
 }
 
@@ -69,16 +82,16 @@ local fail = 0
 local skip = 0
 
 print("WINPE_CI_START")
-print("WINPE_CI_INFO: profile=" .. test_profile.name)
+print("WINPE_CI_INFO: profile=" .. dry_run_profile.name)
 log.info("WinPE CI test started")
 
 -- Phase 1: Dry-run plan (validate all task APIs work)
 print("WINPE_CI_PHASE: dry_run_plan")
-local plan, plan_err = runner.plan(test_profile, {})
+local plan, plan_err = runner.plan(dry_run_profile, {})
 if not plan then
     print("WINPE_CI_FATAL: plan failed: " .. tostring(plan_err))
     print("WINPE_CI_EXIT: 1")
-    os.exit(1)
+    return 1
 end
 
 for _, task_plan in ipairs(plan.tasks or {}) do
@@ -95,7 +108,7 @@ end
 print("WINPE_CI_PHASE: real_execution")
 log.info("Running non-destructive tasks...")
 
--- Custom progress handler that outputs to serial
+-- Custom progress handler that outputs to the CI result log
 local function on_progress(name, i, total)
     print(string.format("WINPE_CI_PROGRESS: %s (%d/%d)", name, i, total))
 end
@@ -113,7 +126,7 @@ local function on_task_complete(name, result, err)
     end
 end
 
-local run_result, run_err = runner.run(test_profile, {
+local run_result, run_err = runner.run(run_profile, {
     logger = log,
     on_progress = on_progress,
     on_task_complete = on_task_complete,
@@ -127,56 +140,63 @@ end
 -- Phase 3: WinPE-specific environment checks
 print("WINPE_CI_PHASE: environment_checks")
 
-local win = require("win-utils")
 local checks = {
     {"firmware_type", function()
-        local info = win.sys.info.get_firmware_type()
-        return info ~= nil, "firmware=" .. tostring(info)
+        local info = require("win-utils.sys.info")
+        local firmware = info.get_firmware_type()
+        return firmware ~= nil, "firmware=" .. tostring(firmware)
     end},
     {"is_winpe", function()
-        local pe = win.sys.info.is_winpe()
+        local info = require("win-utils.sys.info")
+        local pe = info.is_winpe()
         return pe == true, "is_winpe=" .. tostring(pe)
     end},
     {"memory_info", function()
-        local mem = win.sys.info.get_memory_info()
-        return mem ~= nil, "memory=" .. tostring(mem and mem.total_phys or "?")
+        local info = require("win-utils.sys.info")
+        local mem, err = info.get_memory_info()
+        if not mem then return false, tostring(err) end
+        return true, "total_mb=" .. tostring(mem.total_mb) .. ",avail_mb=" .. tostring(mem.avail_mb)
     end},
     {"power_status", function()
-        local ps = win.sys.info.get_power_status()
-        return ps ~= nil, "ac=" .. tostring(ps and ps.ac_on or "?")
+        local info = require("win-utils.sys.info")
+        local ps, err = info.get_power_status()
+        if not ps then return false, tostring(err) end
+        return true, "ac_line_status=" .. tostring(ps.ac_line_status)
     end},
     {"process_list", function()
-        local procs = win.process.list()
+        local process = require("win-utils.process.init")
+        local procs = process.list()
         return procs ~= nil and #procs > 0, "count=" .. tostring(procs and #procs or 0)
     end},
     {"disk_physical_list", function()
-        local disks = win.disk.physical.list()
+        local physical = require("win-utils.disk.physical")
+        local disks = physical.list()
         return disks ~= nil, "count=" .. tostring(disks and #disks or 0)
     end},
     {"volume_list", function()
-        local vols = win.disk.volume.list()
+        local volume = require("win-utils.disk.volume")
+        local vols = volume.list()
         return vols ~= nil, "count=" .. tostring(vols and #vols or 0)
     end},
     {"service_list", function()
-        local svcs = win.sys.service.list()
+        local service = require("win-utils.sys.service")
+        local svcs = service.list()
         return svcs ~= nil and #svcs > 0, "count=" .. tostring(svcs and #svcs or 0)
     end},
 }
 
 for _, check in ipairs(checks) do
     local name, fn = check[1], check[2]
-    local ok, detail = pcall(fn)
-    if ok then
-        local success, msg = detail()
-        if success then
-            print("WINPE_CI_CHECK: " .. name .. " PASS (" .. msg .. ")")
-            pass = pass + 1
-        else
-            print("WINPE_CI_CHECK: " .. name .. " FAIL (" .. msg .. ")")
-            fail = fail + 1
-        end
+    print("WINPE_CI_CHECK_BEGIN: " .. name)
+    local ok, success, msg = pcall(fn)
+    if not ok then
+        print("WINPE_CI_CHECK: " .. name .. " ERROR (" .. tostring(success) .. ")")
+        fail = fail + 1
+    elseif success then
+        print("WINPE_CI_CHECK: " .. name .. " PASS (" .. tostring(msg) .. ")")
+        pass = pass + 1
     else
-        print("WINPE_CI_CHECK: " .. name .. " ERROR (" .. tostring(detail) .. ")")
+        print("WINPE_CI_CHECK: " .. name .. " FAIL (" .. tostring(msg) .. ")")
         fail = fail + 1
     end
 end
@@ -187,7 +207,4 @@ log.info(string.format("WinPE CI complete: %d passed, %d failed, %d skipped", pa
 
 local exit_code = fail > 0 and 1 or 0
 print("WINPE_CI_EXIT: " .. exit_code)
-
--- In WinPE, exiting the shell process triggers reboot.
--- QEMU with -no-reboot will shut down instead of rebooting.
-os.exit(exit_code)
+return exit_code

@@ -1,2 +1,5 @@
 /.ci-debug/
 /ci-debug-report.md
+/.opencode/node_modules/
+/SERIAL
+/tools/serial_cmd/serial_cmd.exe

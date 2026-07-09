@@ -411,3 +411,40 @@ Still pending:
 - `win-utils` CI: all green (56 tests, 0 failures, 2 CI-environment WARNs).
 - `peshell_minimal` CI: all green (Windows build + smoke + Ubuntu Lua smoke).
 - `.luarc.json` added at workspace root for LuaJIT LSP support.
+
+### Updates - 2026-07-09
+
+Local WinPE validation is now complete for the KuerPE + iPXE/wimboot path.
+
+Completed:
+
+- Switched practical WinPE validation from the fragile ISO/UUP path to a known-booting KuerPE WIM.
+- Confirmed the KuerPE image starts through `SYSTEM\Setup\CmdLine`; the active boot chain is now `cmd.exe /c X:\Windows\System32\pe_ci_run.cmd`.
+- Removed `winpeshl.ini`, `winpeshl.cmd`, and `startnet.cmd` from the active wimboot injection path. The old ISO builder may still contain `winpeshl` logic, but it is not used by the KuerPE/wimboot path.
+- Reworked `scripts/build_winpe_wimboot.sh` to accept a direct WIM input, reuse `WORK_WIM`, inject `peshell.exe`, VC runtime DLLs, Lua runtime files, `win-kit`, `win-utils`, `tasks/runner.lua`, `pe_ci_run.cmd`, and `serial_cmd.exe`.
+- Added `scripts/pe_ci_run.cmd` as the WinPE launcher. It finds a tagged FAT result drive, writes `pe_ci_result.log`, supports normal execution, serial interactive mode, and serial bridge mode.
+- Added `tools/serial_cmd/serial_cmd.cpp`, a standalone Win32 serial automation bridge. It polls for `COM1`, supports command execution, file upload/download, chunked upload, `--autorun`, `reboot`, and returns structured markers over serial.
+- Fixed the WinPE profile root cause: `os.exit(...)` in the LuaJIT host caused `0xC0000409` / `3221226505` in WinPE. `scripts/winpe_test_profile.lua` now prints `WINPE_CI_EXIT: <code>` and returns the exit code instead.
+- Kept real WinPE execution conservative: real `init_pe` only; drive-letter assignment and display changes are validated through dry-run plans to avoid disrupting the result drive or QEMU display.
+- Fixed local QEMU launch robustness by rewriting `boot.ipxe` with the selected HTTP port on each run and reading `wimboot.index` with a fallback to index 1.
+
+Validated locally:
+
+- Normal automatic path: `Setup\CmdLine -> pe_ci_run.cmd -> peshell.exe run winpe_test_profile.lua` completed with `WINPE_CI_SUMMARY: 12 0 0` and `WINPE_CI_EXIT: 0`.
+- Serial bridge path: `serial_cmd.exe --autorun "X:\Windows\System32\peshell.exe run X:\Windows\System32\winpe_test_profile.lua"` returned the full profile log and `<<<AUTORUN_END rc=0>>>`.
+- Serial interactive mode supports live command execution and file transfer into the running PE image.
+- COM1 availability is delayed in this PE image; `serial_cmd.exe` handles this by polling until the device exists.
+- Latest static checks passed: `bash -n` for the shell scripts, LuaJIT bytecode compilation for `winpe_test_profile.lua`, MinGW cross-compilation for `serial_cmd.exe`, `git diff --check`, and a targeted search confirming no `os.exit` remains in `scripts/*.lua`.
+- GitNexus change detection reported low risk for indexed tracked changes: 2 changed files, 0 changed symbols, 0 affected processes.
+
+Current status:
+
+- Core refactor goals are complete: `win-kit` is the PE policy/task layer, `win-utils` owns reusable Windows APIs, `lua-ffi-bindings` owns FFI declarations, and `peshell_minimal` dispatches profiles through the task runner instead of embedding PE policy.
+- Local WinPE validation is complete for non-destructive automation and diagnostic coverage.
+- WinPE E2E validation is intentionally local-only. Cloud CI no longer runs PE/QEMU tests because reliable KVM/nested virtualization requires paid or self-hosted runners; AI-agent development and debugging use the local KuerPE/wimboot harness instead.
+- The worktree still contains uncommitted local tooling changes and unrelated dirty/untracked files. The expected local tooling set is `scripts/build_winpe_wimboot.sh`, `scripts/winpe_test_profile.lua`, `scripts/local_qemu_test.sh`, `scripts/pe_ci_run.cmd`, `tools/serial_cmd/serial_cmd.cpp`, and optionally the built `tools/serial_cmd/serial_cmd.exe`.
+
+Still pending or out of scope for this pass:
+
+- Run destructive or hardware-specific scenarios on real hardware.
+- Decide whether to commit the built `serial_cmd.exe` binary or build it as part of a local/CI preparation step.

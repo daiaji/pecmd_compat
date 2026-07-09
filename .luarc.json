@@ -1,0 +1,15 @@
+{
+  "runtime": {
+    "version": "LuaJIT"
+  },
+  "workspace": {
+    "library": [
+      "${3rd}/luajit/library"
+    ]
+  },
+  "diagnostics": {
+    "disable": [
+      "lowercase-global"
+    ]
+  }
+}
