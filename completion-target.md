@@ -148,12 +148,12 @@ GUI 完成标准是对齐 AHK_H 的 `GuiType` / `GuiControlType` 能力模型，
 
 - `ui.gui` 已建立 AHK-like `Gui` / `Control` 模型。
 - 已实现 `Text/Button/Edit/Checkbox/Radio/DropDownList/ComboBox/ListBox/ListView/TreeView/GroupBox/Tab/Slider/UpDown/Progress/StatusBar/Picture/Link/Hotkey/DateTime/MonthCal/Custom` 的模型入口。
-- 已实现 PE 扩展控件 `LogView/PathPicker/DiskList/ConfirmDialog` 的模型入口。
+- 已实现 PE 扩展控件 `LogView/PathPicker/DiskList/ConfirmDialog` 的模型入口和 ImGui 交互路径。
 - `Edit` 已接 `igInputText` / `igInputTextMultiline` buffer 路径，支持 readonly/password/number/limit/multi 语义。
-- `ListView/TreeView/Tab/Progress/Slider/Checkbox/Radio/ComboBox/ListBox/ConfirmDialog` 已有 ImGui 优先渲染路径和 fallback。
+- `ListView/TreeView/Tab/Progress/Slider/Checkbox/Radio/ComboBox/ListBox/PathPicker/DiskList/Picture/ConfirmDialog` 已有 ImGui 优先渲染路径和 fallback。
 - `ListView/TreeView/StatusBar/Tab` 已有专用模型 API 测试。
 - `imgui-native-smoke` 已串入 `ui.gui` 绘制路径。
-- 仍需 Windows/cimgui 实机验证真实渲染和输入行为。
+- 代码侧 GUI 目标已按 AHK-like 模型补齐；仍需 Windows/cimgui 实机验证真实渲染和输入行为。
 
 ## 非 GUI 完成目标
 
