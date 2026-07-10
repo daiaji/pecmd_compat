@@ -22,8 +22,8 @@
 
 | 状态 | 数量 |
 | --- | ---: |
-| `implemented` | 12 |
-| `partial` | 53 |
+| `implemented` | 13 |
+| `partial` | 52 |
 | `modern_replacement` | 56 |
 | `deprecated` | 13 |
 | `needs_decision` | 4 |
@@ -32,8 +32,8 @@
 
 | 状态 | 数量 |
 | --- | ---: |
-| `implemented` | 12 |
-| `partial` | 52 |
+| `implemented` | 13 |
+| `partial` | 51 |
 | `modern_replacement` | 4 |
 | `needs_decision` | 1 |
 
@@ -108,8 +108,11 @@
 
 仍需补齐：
 
-- PECMD 变异 Base64 账号密码算法是否保留，需要真实样本或用途再决策。
 - PECMD 源格式细节仍需样本核验。
+
+已决策不做：
+
+- PECMD 变异 Base64 仅服务旧 `ADSL` 账号密码混淆；`ADSL` 已废弃，现代用途保留标准 Base64 即可。
 
 ### `sys`
 

@@ -594,7 +594,7 @@ local ok, err = disk.safety.check_destructive_target(drive, {
 仍需补齐：
 
 - read/write 的 encoding、offset/length、atomic。
-- PECMD 变异 Base64 是否保留，需要真实样本决策。
+- PECMD 变异 Base64 仅服务旧 `ADSL` 账号密码混淆，随 `ADSL` 废弃；现代用途只保留标准 Base64。
 
 ### P1: `win-utils.disk`
 

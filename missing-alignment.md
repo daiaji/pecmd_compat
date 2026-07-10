@@ -60,8 +60,8 @@
 已对齐：
 - `fs.read/write` 的 encoding、offset/length、atomic。
 
-仍需补齐：
-- PECMD 变异 Base64 账号密码算法是否需要保留需按真实用途确认。
+已决策不做：
+- PECMD 变异 Base64 仅服务旧 `ADSL` 账号密码混淆；`ADSL` 已废弃，现代用途保留标准 Base64 即可。
 
 ## `win-utils.disk` / `win-kit.partition_tools`
 

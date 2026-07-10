@@ -28,7 +28,7 @@
 | `code_block` | `001-global-to-envi` | `modern_replacement` | `lua` | Lua block/function | 旧 `{}` 代码段废弃。 |
 | `LAMBDA` | `001-global-to-envi` | `modern_replacement` | `lua` | Lua 闭包 | 不实现旧 lambda 语法。 |
 | `ADSL` | `001-global-to-envi` | `deprecated` | `none` | 无 | PPPoE 旧场景，除非有真实需求。 |
-| `BASE` | `001-global-to-envi` | `partial` | `win-utils` | `win-utils.text.base64_encode/decode` | 已有标准 Base64 encode/decode；PECMD 变异 Base64 账号密码算法仍需按文档/样本核验。 |
+| `BASE` | `001-global-to-envi` | `implemented` | `win-utils` | `win-utils.text.base64_encode/decode` | 已有标准 Base64 encode/decode；PECMD 变异 Base64 仅服务旧 `ADSL` 账号密码混淆，随 `ADSL` 废弃，不实现。 |
 | `BROW` | `001-global-to-envi` | `partial` | `win-utils` / `peshell_minimal` | `win-utils.sys.shell.browse_folder`, ImGui file picker | 目录选择已有；peshell_minimal 已新增 file picker view model 与 ImGui draw 层，真实渲染需 Windows/cimgui 核验。 |
 | `CALC` | `001-global-to-envi` | `modern_replacement` | `lua` | Lua 表达式 | 不实现 PECMD 表达式语言。 |
 | `CALL` | `001-global-to-envi` | `modern_replacement` | `lua` | Lua 函数调用 | 旧子过程调用废弃。 |

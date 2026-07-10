@@ -36,6 +36,7 @@ jobs:
         run: |
           cd peshell_minimal
           luajit scripts/test_profile_runner.lua
+          luajit scripts/test_gui.lua
 
       - name: Exercise CI log analyzer
         run: |

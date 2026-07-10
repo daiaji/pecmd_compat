@@ -1,11 +1,12 @@
 #!/bin/bash
 # local_qemu_test.sh - local KVM + iPXE + wimboot test launcher
-# Usage: ./scripts/local_qemu_test.sh [timeout]
+# Usage: ./scripts/local_qemu_test.sh [timeout] [port] [normal|serial_bridge]
 
 set -euo pipefail
 
 TIMEOUT=${1:-180}
 PORT=${2:-18080}
+MODE=${3:-serial_bridge}
 
 ROOT=/tmp/opencode/winpe_setup_http
 IPXE_ISO=/tmp/opencode/ipxe.iso
@@ -18,6 +19,18 @@ rm -f "$SERIAL"
 rm -rf "$RESULT_DIR"
 mkdir -p "$RESULT_DIR"
 printf 'pecmd_compat WinPE CI result drive\n' > "$RESULT_DIR/PE_CI_RESULT_DRIVE.TAG"
+case "$MODE" in
+    normal)
+        ;;
+    serial_bridge)
+        printf 'serial bridge\n' > "$RESULT_DIR/PE_CI_SERIAL_BRIDGE.TAG"
+        ;;
+    *)
+        echo "[ERROR] Unknown mode: $MODE"
+        echo "Usage: ./scripts/local_qemu_test.sh [timeout] [port] [normal|serial_bridge]"
+        exit 1
+        ;;
+esac
 
 if [ ! -f "$IPXE_ISO" ]; then
     echo "[ERROR] Missing cached iPXE ISO: $IPXE_ISO"
@@ -71,6 +84,7 @@ IPXE
 echo "[INFO] HTTP root: $ROOT"
 echo "[INFO] Serial log: $SERIAL"
 echo "[INFO] Timeout: ${TIMEOUT}s"
+echo "[INFO] Mode: $MODE"
 echo "[INFO] Starting QEMU..."
 
 (cd "$ROOT" && python3 -m http.server "$PORT" --bind 0.0.0.0) > /dev/null 2>&1 &
